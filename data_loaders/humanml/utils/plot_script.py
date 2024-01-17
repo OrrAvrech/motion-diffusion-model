@@ -48,7 +48,7 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         ]
         xz_plane = Poly3DCollection([verts])
         xz_plane.set_facecolor((0.5, 0.5, 0.5, 0.5))
-        ax.add_collection3d(xz_plane)
+        # ax.add_collection3d(xz_plane)
 
     #         return ax
 
@@ -58,7 +58,7 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
     # preparation related to specific datasets
     if dataset == 'kit':
         data *= 0.003  # scale for visualization
-    elif dataset == 'humanml':
+    elif dataset in ['humanml', "humanfeedback"]:
         data *= 1.3  # scale for visualization
     elif dataset in ['humanact12', 'uestc']:
         data *= -1.5 # reverse axes, scale for visualization
@@ -94,7 +94,7 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         #         print(index)
         ax.lines = []
         ax.collections = []
-        ax.view_init(elev=120, azim=-90)
+        ax.view_init(elev=-90, azim=-90)
         ax.dist = 7.5
         #         ax =
         plot_xzPlane(MINS[0] - trajec[index, 0], MAXS[0] - trajec[index, 0], 0, MINS[2] - trajec[index, 1],

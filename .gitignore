@@ -1,7 +1,20 @@
+# user
+.vscode
+*.zip
+save/
+*.pkl
+*.mp4
+*.tar
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+*.idea
+*__MACOSX*
+*.txt
+*.npy
+*.mp4
 
 # C extensions
 *.so

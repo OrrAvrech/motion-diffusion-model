@@ -7,6 +7,8 @@ import random
 import codecs as cs
 from tqdm import tqdm
 import spacy
+from pathlib import Path
+import joblib
 
 from torch.utils.data._utils.collate import default_collate
 from data_loaders.humanml.utils.word_vectorizer import WordVectorizer
@@ -779,3 +781,19 @@ class HumanML3D(data.Dataset):
 class KIT(HumanML3D):
     def __init__(self, mode, datapath='./dataset/kit_opt.txt', split="train", **kwargs):
         super(KIT, self).__init__(mode, datapath, split, **kwargs)
+
+
+class HumanFeedback(data.Dataset):
+    def __init__(self, max_frames: int, dataset_dir: Path = Path("./dataset/HumanFeedback")):
+        self.dataset_dir = dataset_dir
+        self.motion_dir = dataset_dir / "new_joint_vecs"
+        self.motions_list = list(self.motion_dir.rglob("*.npy"))
+        self.max_frames = max_frames
+
+    def __getitem__(self, idx) -> np.array:
+        filepath = self.motions_list[idx]
+        joints_seq = torch.Tensor(np.load(filepath))[:self.max_frames, :]
+        return joints_seq
+
+    def __len__(self):
+        return len(self.motions_list)
