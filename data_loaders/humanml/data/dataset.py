@@ -213,7 +213,8 @@ class Text2MotionDatasetV2(data.Dataset):
         self.max_length = 20
         self.pointer = 0
         self.max_motion_length = opt.max_motion_length
-        min_motion_len = 40 if self.opt.dataset_name =='t2m' else 24
+        min_motion_len = 40 if (self.opt.dataset_name =='t2m' 
+                                or self.opt.dataset_name == "humanfeedback") else 24
 
         data_dict = {}
         id_list = []
@@ -783,7 +784,12 @@ class KIT(HumanML3D):
         super(KIT, self).__init__(mode, datapath, split, **kwargs)
 
 
-class HumanFeedback(data.Dataset):
+class HumanFeedback(HumanML3D):
+    def __init__(self, mode, datapath='./dataset/humanfeedback_opt.txt', split="all", **kwargs):
+        super().__init__(mode, datapath, split, **kwargs)
+
+
+class HumanFeedbackNew(data.Dataset):
     def __init__(self, max_frames: int, dataset_dir: Path = Path("./dataset/HumanFeedback")):
         self.dataset_dir = dataset_dir
         self.motion_dir = dataset_dir / "new_joint_vecs"

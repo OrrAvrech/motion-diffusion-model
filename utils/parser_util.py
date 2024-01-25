@@ -12,7 +12,10 @@ def parse_and_load_from_model(parser):
     add_diffusion_options(parser)
     args = parser.parse_args()
     args_to_overwrite = []
-    for group_name in ['dataset', 'model', 'diffusion']:
+    groups = ['dataset', 'model', 'diffusion']
+    if args.dataset == "humanfeedback":
+        groups = ['model', 'diffusion']
+    for group_name in groups:
         args_to_overwrite += get_args_per_group_name(parser, args, group_name)
 
     # load args from model
@@ -35,6 +38,7 @@ def parse_and_load_from_model(parser):
 
     if args.cond_mask_prob == 0:
         args.guidance_param = 1
+
     return args
 
 
@@ -245,12 +249,6 @@ def edit_args():
     add_sampling_options(parser)
     add_edit_options(parser)
     return parse_and_load_from_model(parser)
-
-
-def edit_ood_args():
-    edit_arg = edit_args()
-    edit_arg.dataset = "humanfeedback"
-    return edit_arg
 
 
 def evaluation_parser():
