@@ -21,6 +21,9 @@ def get_dataset_class(name):
     elif name == "humanfeedback":
         from data_loaders.humanml.data.dataset import HumanFeedback
         return HumanFeedback
+    elif name == "moyo":
+        from data_loaders.humanml.data.dataset import MOYO
+        return MOYO
     else:
         raise ValueError(f'Unsupported dataset name [{name}]')
 
@@ -28,7 +31,7 @@ def get_collate_fn(name, hml_mode='train'):
     if hml_mode == 'gt':
         from data_loaders.humanml.data.dataset import collate_fn as t2m_eval_collate
         return t2m_eval_collate
-    if name in ["humanml", "kit", "humanfeedback"]:
+    if name in ["humanml", "kit", "humanfeedback", "moyo"]:
         return t2m_collate
     else:
         return all_collate
@@ -36,7 +39,7 @@ def get_collate_fn(name, hml_mode='train'):
 
 def get_dataset(name, num_frames, split='train', hml_mode='train'):
     DATA = get_dataset_class(name)
-    if name in ["humanml", "kit", "humanfeedback"]:
+    if name in ["humanml", "kit", "humanfeedback", "moyo"]:
         dataset = DATA(split=split, num_frames=num_frames, mode=hml_mode)
     else:
         dataset = DATA(split=split, num_frames=num_frames)

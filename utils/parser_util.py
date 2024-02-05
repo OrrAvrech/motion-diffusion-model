@@ -13,7 +13,7 @@ def parse_and_load_from_model(parser):
     args = parser.parse_args()
     args_to_overwrite = []
     groups = ['dataset', 'model', 'diffusion']
-    if args.dataset == "humanfeedback":
+    if args.dataset in ["humanfeedback", "moyo"]:
         groups = ['model', 'diffusion']
     for group_name in groups:
         args_to_overwrite += get_args_per_group_name(parser, args, group_name)
@@ -102,7 +102,7 @@ def add_model_options(parser):
 
 def add_data_options(parser):
     group = parser.add_argument_group('dataset')
-    group.add_argument("--dataset", default='humanml', choices=['humanml', 'kit', 'humanact12', 'uestc', 'humanfeedback'], type=str,
+    group.add_argument("--dataset", default='humanml', choices=['humanml', 'kit', 'humanact12', 'uestc', 'humanfeedback', 'moyo'], type=str,
                        help="Dataset name (choose from list).")
     group.add_argument("--data_dir", default="", type=str,
                        help="If empty, will use defaults according to the specified dataset.")
@@ -208,7 +208,7 @@ def add_evaluation_options(parser):
 def get_cond_mode(args):
     if args.unconstrained:
         cond_mode = 'no_cond'
-    elif args.dataset in ['kit', 'humanml', "humanfeedback"]:
+    elif args.dataset in ['kit', 'humanml', "humanfeedback", "moyo"]:
         cond_mode = 'text'
     else:
         cond_mode = 'action'

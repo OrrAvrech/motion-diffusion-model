@@ -228,7 +228,9 @@ class Text2MotionDatasetV2(data.Dataset):
         for name in tqdm(id_list):
             try:
                 motion = np.load(pjoin(opt.motion_dir, name + '.npy'))
-                if (len(motion)) < min_motion_len or (len(motion) >= 200):
+                # TODO: check if breaks anything
+                motion = motion[-self.max_motion_length:]
+                if (len(motion)) < min_motion_len or (len(motion) > self.max_motion_length):
                     continue
                 text_data = []
                 flag = False
@@ -251,7 +253,7 @@ class Text2MotionDatasetV2(data.Dataset):
                         else:
                             try:
                                 n_motion = motion[int(f_tag*20) : int(to_tag*20)]
-                                if (len(n_motion)) < min_motion_len or (len(n_motion) >= 200):
+                                if (len(n_motion)) < min_motion_len or (len(n_motion) > self.max_motion_length):
                                     continue
                                 new_name = random.choice('ABCDEFGHIJKLMNOPQRSTUVW') + '_' + name
                                 while new_name in data_dict:
@@ -803,3 +805,8 @@ class HumanFeedbackNew(data.Dataset):
 
     def __len__(self):
         return len(self.motions_list)
+
+
+class MOYO(HumanML3D):
+    def __init__(self, mode, datapath='./dataset/moyo_opt.txt', split="all", **kwargs):
+        super().__init__(mode, datapath, split, **kwargs)
