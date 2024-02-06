@@ -33,4 +33,9 @@ class TrainRegressorConfig:
     epochs: int
     lr: float
     weight_decay: float
+    save_dir: Path
     device: Optional[int] = 0
+
+    def __post_init__(self):
+        self.save_dir.mkdir(exist_ok=True, parents=True)
+
