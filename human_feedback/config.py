@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 
 @dataclass
@@ -33,6 +33,7 @@ class TrainRegressorConfig:
     epochs: int
     lr: float
     weight_decay: float
+    geometric_loss_weights: List[float]
     save_dir: Path
     device: Optional[int] = 0
 
