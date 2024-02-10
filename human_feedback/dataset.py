@@ -8,7 +8,7 @@ import numpy as np
 
 class MotionPairs(data.Dataset):
     def __init__(self, input_dir: Path, pert_dir: Path, max_frames: Optional[int] = None,
-                 random_choice: bool = True, sample_window: bool = True, transform = None) -> None:
+                 random_choice: bool = True, sample_window: bool = False, transform = None) -> None:
         self.input_dir = input_dir
         self.pert_dir = pert_dir
         self.max_frames = max_frames
@@ -59,9 +59,9 @@ class MotionPairs(data.Dataset):
 
 class MotionPairsSplit(MotionPairs):
     def __init__(self, input_dir: Path, pert_dir: str, split: str, max_frames: Optional[int] = None,
-                 random_choice: bool = True, transform = None) -> None:
+                 random_choice: bool = True, sample_window: bool = False, transform = None) -> None:
         super().__init__(input_dir=input_dir, pert_dir=pert_dir, random_choice=random_choice,
-                         max_frames=max_frames, transform=transform)
+                         max_frames=max_frames, sample_window=sample_window, transform=transform)
         self.split_file = input_dir.parent / f"{split}.txt"
         id_list = []
         with open(self.split_file, 'r') as f:
