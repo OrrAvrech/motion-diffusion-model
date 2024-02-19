@@ -52,3 +52,45 @@ HML_LOWER_BODY_MASK = np.concatenate(([True]*(1+2+1),
                                      HML_LOWER_BODY_JOINTS_BINARY.repeat(3),
                                      [True]*4))
 HML_UPPER_BODY_MASK = ~HML_LOWER_BODY_MASK
+
+# Human-Feedback
+HML_LOWER_BACK_JOINTS = [HML_JOINT_NAMES.index(name) for name in ['pelvis', 'spine1', 'spine2', 'spine3']]
+HML_UPPER_BACK_JOINTS = [HML_JOINT_NAMES.index(name) for name in ['spine1', 'spine2', 'spine3', 'neck', 'right_collar', 'left_collar', 'right_shoulder', 'left_shoulder']]
+HML_KNEE_JOINTS = [HML_JOINT_NAMES.index(name) for name in ['right_knee', 'left_knee']]
+HML_HIP_JOINTS = [HML_JOINT_NAMES.index(name) for name in ['right_hip', 'left_hip']]
+HML_FEET_JOINTS = [HML_JOINT_NAMES.index(name) for name in ['right_foot', 'left_foot', 'right_ankle', 'left_ankle']]
+
+HML_LOWER_BACK_JOINTS_BINARY = np.array([i in HML_LOWER_BACK_JOINTS for i in range(NUM_HML_JOINTS)])
+HML_UPPER_BACK_JOINTS_BINARY = np.array([i in HML_UPPER_BACK_JOINTS for i in range(NUM_HML_JOINTS)])
+HML_KNEE_JOINTS_BINARY = np.array([i in HML_KNEE_JOINTS for i in range(NUM_HML_JOINTS)])
+HML_HIP_JOINTS_BINARY = np.array([i in HML_HIP_JOINTS for i in range(NUM_HML_JOINTS)])
+HML_FEET_JOINTS_BINARY = np.array([i in HML_FEET_JOINTS for i in range(NUM_HML_JOINTS)])
+
+HML_LOWER_BACK_MASK = ~np.concatenate(([True]*(1+2+1),
+                                     HML_LOWER_BACK_JOINTS_BINARY[1:].repeat(3),
+                                     HML_LOWER_BACK_JOINTS_BINARY[1:].repeat(6),
+                                     HML_LOWER_BACK_JOINTS_BINARY.repeat(3),
+                                     [True]*4))
+HML_UPPER_BACK_MASK = ~np.concatenate(([True]*(1+2+1),
+                                     HML_UPPER_BACK_JOINTS_BINARY[1:].repeat(3),
+                                     HML_UPPER_BACK_JOINTS_BINARY[1:].repeat(6),
+                                     HML_UPPER_BACK_JOINTS_BINARY.repeat(3),
+                                     [True]*4))
+HML_KNEE_MASK = ~np.concatenate(([True]*(1+2+1),
+                                HML_KNEE_JOINTS_BINARY[1:].repeat(3),
+                                HML_KNEE_JOINTS_BINARY[1:].repeat(6),
+                                HML_KNEE_JOINTS_BINARY.repeat(3),
+                                [True]*4))
+HML_HIP_MASK = ~np.concatenate(([True]*(1+2+1),
+                                HML_HIP_JOINTS_BINARY[1:].repeat(3),
+                                HML_HIP_JOINTS_BINARY[1:].repeat(6),
+                                HML_HIP_JOINTS_BINARY.repeat(3),
+                                [True]*4))
+HML_FEET_MASK = ~np.concatenate(([True]*(1+2+1),
+                                HML_FEET_JOINTS_BINARY[1:].repeat(3),
+                                HML_FEET_JOINTS_BINARY[1:].repeat(6),
+                                HML_FEET_JOINTS_BINARY.repeat(3),
+                                [True]*4))
+
+
+

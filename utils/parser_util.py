@@ -177,7 +177,7 @@ def add_generate_options(parser):
 
 def add_edit_options(parser):
     group = parser.add_argument_group('edit')
-    group.add_argument("--edit_mode", default='in_between', choices=['in_between', 'upper_body'], type=str,
+    group.add_argument("--edit_mode", default='in_between', choices=['in_between', 'upper_body', 'lower_body'], type=str,
                        help="Defines which parts of the input motion will be edited.\n"
                             "(1) in_between - suffix and prefix motion taken from input motion, "
                             "middle motion is generated.\n"
@@ -190,6 +190,7 @@ def add_edit_options(parser):
                        help="For in_between editing - Defines the end of input prefix (ratio from all frames).")
     group.add_argument("--suffix_start", default=0.75, type=float,
                        help="For in_between editing - Defines the start of input suffix (ratio from all frames).")
+    group.add_argument("--csv_path", help="timeline edits in the form of a csv file", type=str)
 
 
 def add_evaluation_options(parser):

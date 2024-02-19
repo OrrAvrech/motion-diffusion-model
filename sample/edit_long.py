@@ -1,13 +1,8 @@
-# This code is based on https://github.com/openai/guided-diffusion
-"""
-Generate a large batch of image samples from a model and save them as a large
-numpy array. This can be used to produce samples for FID evaluation.
-"""
 from utils.fixseed import fixseed
 import os
 import numpy as np
 import torch
-from utils.parser_util import edit_args, edit_ood_args
+from utils.parser_util import edit_args
 from utils.model_util import create_model_and_diffusion, load_model_wo_clip
 from utils import dist_util
 from model.cfg_sampler import ClassifierFreeSampleModel
@@ -17,16 +12,58 @@ from data_loaders import humanml_utils
 import data_loaders.humanml.utils.paramUtil as paramUtil
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
 import shutil
+from pathlib import Path
+import pandas as pd
+from functools import partial
+
+
+def in_between_fn(input_motions, model_kwargs, start, end):
+    model_kwargs['y']['inpainting_mask'] = torch.ones_like(input_motions, dtype=torch.bool, device=input_motions.device)  # True means use gt motion
+    model_kwargs['y']['inpainting_mask'][:, :, :,start:end] = False  # do inpainting in those frames
+    return model_kwargs
+
+
+def body_mask_fn(input_motions, model_kwargs, start, end, mask):
+    model_kwargs['y']['inpainting_mask'] = torch.ones_like(input_motions, dtype=torch.bool, device=input_motions.device)  # True means use gt motion
+    frame_mask = torch.tensor(mask, dtype=torch.bool, device=input_motions.device)
+    num_frames_to_generate = end - start
+    assert num_frames_to_generate > 0
+    model_kwargs['y']['inpainting_mask'][..., start:end] = frame_mask.unsqueeze(0).unsqueeze(
+        -1).unsqueeze(-1).repeat(input_motions.shape[0], 1, input_motions.shape[2], num_frames_to_generate)
+    return model_kwargs
 
 
 def main():
-    args = edit_ood_args()
+    INPAINTING_DICT = {
+        "in_between": in_between_fn,
+        "lower_body": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_MASK),
+        "upper_body": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BODY_MASK),
+        "lower_back": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BACK_MASK),
+        "upper_back": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BACK_MASK),
+        "knees": partial(body_mask_fn, mask=humanml_utils.HML_KNEE_MASK),
+        "hips": partial(body_mask_fn, mask=humanml_utils.HML_HIP_MASK),
+        "feet": partial(body_mask_fn, mask=humanml_utils.HML_FEET_MASK)
+    }
+
+    args = edit_args()
     fixseed(args.seed)
     out_path = args.output_dir
     name = os.path.basename(os.path.dirname(args.model_path))
     niter = os.path.basename(args.model_path).replace('model', '').replace('.pt', '')
-    max_frames = 196 if args.dataset in ['kit', 'humanml', "humanfeedback"] else 60
-    fps = 12.5 if args.dataset == 'kit' else 20
+    # max_frames = 196 if args.dataset in ['kit', 'humanml', "humanfeedback"] else 60
+    if args.dataset in ['kit', 'humanml', "humanfeedback"]:
+        max_frames = 196
+    elif args.dataset == "moyo":
+        max_frames = 196
+    else:
+        max_frames = 60
+
+    if args.dataset == "kit":
+        fps = 12.5
+    elif args.dataset == "moyo":
+        fps = 20
+    else:
+        fps = 20
     dist_util.setup_dist(args.device)
     if out_path == '':
         out_path = os.path.join(os.path.dirname(args.model_path),
@@ -44,9 +81,9 @@ def main():
     args.batch_size = args.num_samples  # Sampling a single batch from the testset, with exactly args.num_samples
     data = get_dataset_loader(name=args.dataset,
                               batch_size=args.batch_size,
-                              num_frames=max_frames)  # in train mode, you get both text and motion.
-    # data.fixed_length = n_frames
-    total_num_samples = args.num_samples * args.num_repetitions
+                              num_frames=max_frames,
+                              split='experiment',
+                              hml_mode='train')  # in train mode, you get both text and motion.
 
     print("Creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(args, data)
@@ -62,35 +99,39 @@ def main():
     iterator = iter(data)
     input_motions, model_kwargs = next(iterator)
     input_motions = input_motions.to(dist_util.dev())
-    texts = [args.text_condition] * args.num_samples
-    model_kwargs['y']['text'] = texts
-    if args.text_condition == '':
-        args.guidance_param = 0.  # Force unconditioned generation
 
     # add inpainting mask according to args
     assert max_frames == input_motions.shape[-1]
     gt_frames_per_sample = {}
     model_kwargs['y']['inpainted_motion'] = input_motions
-    if args.edit_mode == 'in_between':
-        model_kwargs['y']['inpainting_mask'] = torch.ones_like(input_motions, dtype=torch.bool,
-                                                               device=input_motions.device)  # True means use gt motion
-        for i, length in enumerate(model_kwargs['y']['lengths'].cpu().numpy()):
-            start_idx, end_idx = int(args.prefix_end * length), int(args.suffix_start * length)
-            gt_frames_per_sample[i] = list(range(0, start_idx)) + list(range(end_idx, max_frames))
-            model_kwargs['y']['inpainting_mask'][i, :, :,
-            start_idx: end_idx] = False  # do inpainting in those frames
-    elif args.edit_mode == 'upper_body':
-        model_kwargs['y']['inpainting_mask'] = torch.tensor(humanml_utils.HML_LOWER_BODY_MASK, dtype=torch.bool,
-                                                            device=input_motions.device)  # True is lower body data
-        model_kwargs['y']['inpainting_mask'] = model_kwargs['y']['inpainting_mask'].unsqueeze(0).unsqueeze(
-            -1).unsqueeze(-1).repeat(input_motions.shape[0], 1, input_motions.shape[2], input_motions.shape[3])
+
+    df = pd.read_csv(args.csv_path)
+    num_repetitions = len(df.index)
+    total_num_samples = args.num_samples * num_repetitions
 
     all_motions = []
     all_lengths = []
     all_text = []
 
-    for rep_i in range(args.num_repetitions):
-        print(f'### Start sampling [repetitions #{rep_i}]')
+    for i in range(num_repetitions):
+        row = df.iloc[i]
+        text = row["text"]
+        start_time = row["start"]
+        end_time = row["end"]
+        start = int(fps * start_time)
+        end = int(fps * end_time)
+        inpainting = row["inpainting"]
+
+        texts = [text] * args.num_samples
+        model_kwargs['y']['text'] = texts
+        if text == '':
+            args.guidance_param = 0.  # Force unconditioned generation
+
+        inpainting_fn = INPAINTING_DICT[inpainting]
+        model_kwargs = inpainting_fn(input_motions=input_motions, 
+                                     model_kwargs=model_kwargs, 
+                                     start=start, 
+                                     end=end)
 
         # add CFG scale to batch
         model_kwargs['y']['scale'] = torch.ones(args.batch_size, device=dist_util.dev()) * args.guidance_param
@@ -110,12 +151,10 @@ def main():
             const_noise=False,
         )
 
-
         # Recover XYZ *positions* from HumanML3D vector representation
         if model.data_rep == 'hml_vec':
             n_joints = 22 if sample.shape[1] == 263 else 21
-            # sample = data.dataset.t2m_dataset.inv_transform(sample.cpu().permute(0, 2, 3, 1)).float()
-            sample = sample.cpu().permute(0, 2, 3, 1).float()
+            sample = data.dataset.t2m_dataset.inv_transform(sample.cpu().permute(0, 2, 3, 1)).float()
             sample = recover_from_ric(sample, n_joints)
             sample = sample.view(-1, *sample.shape[2:]).permute(0, 2, 3, 1)
 
@@ -139,7 +178,7 @@ def main():
     print(f"saving results file to [{npy_path}]")
     np.save(npy_path,
             {'motion': all_motions, 'text': all_text, 'lengths': all_lengths,
-             'num_samples': args.num_samples, 'num_repetitions': args.num_repetitions})
+             'num_samples': args.num_samples, 'num_repetitions': num_repetitions})
     with open(npy_path.replace('.npy', '.txt'), 'w') as fw:
         fw.write('\n'.join(all_text))
     with open(npy_path.replace('.npy', '_len.txt'), 'w') as fw:
@@ -150,8 +189,7 @@ def main():
 
     # Recover XYZ *positions* from HumanML3D vector representation
     if model.data_rep == 'hml_vec':
-        # input_motions = data.dataset.t2m_dataset.inv_transform(input_motions.cpu().permute(0, 2, 3, 1)).float()
-        input_motions = input_motions.cpu().permute(0, 2, 3, 1).float()
+        input_motions = data.dataset.t2m_dataset.inv_transform(input_motions.cpu().permute(0, 2, 3, 1)).float()
         input_motions = recover_from_ric(input_motions, n_joints)
         input_motions = input_motions.view(-1, *input_motions.shape[2:]).permute(0, 2, 3, 1).cpu().numpy()
 
@@ -167,7 +205,7 @@ def main():
         plot_3d_motion(animation_save_path, skeleton, motion, title=caption,
                        dataset=args.dataset, fps=fps, vis_mode='gt',
                        gt_frames=gt_frames_per_sample.get(sample_i, []))
-        for rep_i in range(args.num_repetitions):
+        for rep_i in range(num_repetitions):
             caption = all_text[rep_i*args.batch_size + sample_i]
             if caption == '':
                 caption = 'Edit [{}] unconditioned'.format(args.edit_mode)
@@ -186,14 +224,14 @@ def main():
 
         all_rep_save_file = os.path.join(out_path, 'sample{:02d}.mp4'.format(sample_i))
         ffmpeg_rep_files = [f' -i {f} ' for f in rep_files]
-        hstack_args = f' -filter_complex hstack=inputs={args.num_repetitions+1}'
+        hstack_args = f' -filter_complex hstack=inputs={num_repetitions+1}'
         ffmpeg_rep_cmd = f'ffmpeg -y -loglevel warning ' + ''.join(ffmpeg_rep_files) + f'{hstack_args} {all_rep_save_file}'
         os.system(ffmpeg_rep_cmd)
         print(f'[({sample_i}) "{caption}" | all repetitions | -> {all_rep_save_file}]')
 
     abs_path = os.path.abspath(out_path)
     print(f'[Done] Results are at [{abs_path}]')
-
-
+        
+        
 if __name__ == "__main__":
     main()

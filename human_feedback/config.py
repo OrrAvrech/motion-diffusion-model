@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, Dict, List, Union
 
 
 @dataclass
@@ -33,9 +33,10 @@ class TrainRegressorConfig:
     epochs: int
     lr: float
     weight_decay: float
-    geometric_loss_weights: List[float]
+    geometric_loss_weights: Dict[str, float]
     save_dir: Path
-    device: Optional[int] = 0
+    viz_samples_per_batch: Optional[int] = 0
+    device: Optional[Union[List[int], int]] = 0
 
     def __post_init__(self):
         self.save_dir.mkdir(exist_ok=True, parents=True)
