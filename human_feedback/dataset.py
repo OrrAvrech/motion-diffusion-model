@@ -25,6 +25,7 @@ class MotionPairs(data.Dataset):
             zeros[:seq_len, ...] = motion
             motion_proc = zeros
         else:
+            seq_len = self.max_frames
             if self.sample_window is True:
                 # randomly sample a window of max-frames size
                 start_idx = random.randint(0, seq_len - self.max_frames)

@@ -2,7 +2,7 @@ import os
 import torch
 import pyrallis
 from tqdm import tqdm
-from typing import List
+from typing import Dict
 from pathlib import Path
 from datetime import datetime
 from dataclasses import asdict
@@ -12,8 +12,8 @@ from human_feedback.config import TrainRegressorConfig
 from human_feedback.dataset import MotionPairsSplit
 from human_feedback.viz import plot_3d_motion, save_vid_list
 from data_loaders.humanml.scripts.motion_process import recover_from_ric
-import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn as nn
 
 
 class RecoverPositions:
@@ -44,7 +44,7 @@ class EarlyStopper:
         return False
     
 
-def geomteric_loss(pos_true: torch.Tensor, pos_pred: torch.Tensor, weights: List[float]):
+def geomteric_loss(pos_true: torch.Tensor, pos_pred: torch.Tensor, weights: Dict[str, float]):
     # xyz loss
     pos_loss = F.mse_loss(pos_pred, pos_true)
     # velocities loss (TODO: consider removing root joint for this)
@@ -62,8 +62,7 @@ def geomteric_loss(pos_true: torch.Tensor, pos_pred: torch.Tensor, weights: List
     pred_vel[~fc_mask] = 0
     fc_loss = F.mse_loss(pred_vel, torch.zeros_like(pred_vel, device=pred_vel.device))
     # geometric loss
-    pos_lambda, vel_lambda, fc_lambda = weights
-    loss = pos_lambda * pos_loss + vel_lambda * vel_loss + fc_lambda * fc_loss
+    loss = weights["pos"] * pos_loss + weights["vel"] * vel_loss + weights["foot"] * fc_loss
     return loss
 
 
@@ -91,15 +90,18 @@ def save_viz(gt: torch.Tensor, perturbated: torch.Tensor, pred: torch.Tensor,
 @pyrallis.wrap()
 def main(cfg: TrainRegressorConfig):
     run_time = datetime.now().strftime("%Y%m%d_%H%M")
-    model = M2MRegressor(**asdict(cfg.model))
+    save_dir = cfg.save_dir / f"{cfg.save_dir.name}_{run_time}"
+    save_dir.mkdir(exist_ok=True, parents=True)
 
     transform = RecoverPositions(cfg.model.njoints)
-    train_ds = MotionPairsSplit(**asdict(cfg.dataset), split="train", transform=transform)
+    train_ds = MotionPairsSplit(**asdict(cfg.dataset), split="train", sample_window=True, transform=transform)
     val_ds = MotionPairsSplit(**asdict(cfg.dataset), split="val", random_choice=False, transform=transform)
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
 
-    device = torch.device("cuda:" + str(cfg.device) if torch.cuda.is_available() else "cpu")
+    model = M2MRegressor(**asdict(cfg.model))
+    device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
+    #model= nn.DataParallel(model, device_ids=cfg.device)
     model.to(device)
     model.rot2xyz.smpl_model.eval()
 
@@ -112,7 +114,7 @@ def main(cfg: TrainRegressorConfig):
         train_loss = 0.0
 
         for batch in tqdm(train_loader):
-            gt_motion, pert_motion = batch
+            gt_motion, pert_motion, _ = batch
             gt_motion = gt_motion.to(device)
             pert_motion = pert_motion.to(device)
             optimizer.zero_grad()
@@ -130,7 +132,7 @@ def main(cfg: TrainRegressorConfig):
         model.eval()
         val_loss = 0.0
         for i, val_batch in enumerate(val_loader):
-            gt_motion, pert_motion = val_batch
+            gt_motion, pert_motion, seq_len = val_batch
             gt_motion = gt_motion.to(device)
             pert_motion = pert_motion.to(device)
         
@@ -138,21 +140,28 @@ def main(cfg: TrainRegressorConfig):
                 output_motion = model(pert_motion)
                 batch_val_loss = geomteric_loss(gt_motion, output_motion, weights=cfg.geometric_loss_weights)
             val_loss += batch_val_loss
-
-            for j in range(len(gt_motion)):
-                if j < 1:
-                    idx = f"epoch{epoch}_batch{i}_sample{j}"
-                    save_dir_viz = cfg.save_dir / f"{cfg.save_dir.name}_{run_time}" / f"epoch_{epoch}"
-                    save_viz(gt_motion[j], pert_motion[j], output_motion[j], save_dir=save_dir_viz, idx=idx)
+                
         val_loss /= len(val_ds)
 
         print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss:.4f}, Validation-Loss: {val_loss:.4f}")
         
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_path = cfg.save_dir / f"{cfg.save_dir.name}_{run_time}.pt"
+            save_path = save_dir / f"{cfg.save_dir.name}_{run_time}.pt"
             torch.save(model.state_dict(), save_path)
             print(f"Saved model {save_path}")
+
+            # visualize motions on best model
+            for j in range(len(gt_motion)):
+                    if j <= cfg.viz_samples_per_batch:
+                        idx = f"epoch{epoch+1}_batch{i}_sample{j}"
+                        save_dir_viz = save_dir / "viz" / f"epoch_{epoch}"
+                        sample_seq_len = seq_len[j]
+                        save_viz(gt_motion[j, :, :, :sample_seq_len],
+                                 pert_motion[j, :, :, :sample_seq_len], 
+                                 output_motion[j, :, :, :sample_seq_len], 
+                                 save_dir=save_dir_viz, 
+                                 idx=idx)
         
         if early_stopper.stop(val_loss):
             print("Early Stopping")
