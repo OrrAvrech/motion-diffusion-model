@@ -229,7 +229,9 @@ class Text2MotionDatasetV2(data.Dataset):
             try:
                 motion = np.load(pjoin(opt.motion_dir, name + '.npy'))
                 # TODO: check if breaks anything
-                motion = motion[-self.max_motion_length:]
+                # qtr_idx = int(len(motion) * 0.25)
+                # motion = motion[qtr_idx:qtr_idx+self.max_motion_length]
+                motion = motion[:self.max_motion_length]
                 if (len(motion)) < min_motion_len or (len(motion) > self.max_motion_length):
                     continue
                 text_data = []
@@ -319,7 +321,10 @@ class Text2MotionDatasetV2(data.Dataset):
         pos_one_hots = []
         word_embeddings = []
         for token in tokens:
-            word_emb, pos_oh = self.w_vectorizer[token]
+            try:
+                word_emb, pos_oh = self.w_vectorizer[token]
+            except:
+                print(self.name_list[idx])
             pos_one_hots.append(pos_oh[None, :])
             word_embeddings.append(word_emb[None, :])
         pos_one_hots = np.concatenate(pos_one_hots, axis=0)
@@ -643,6 +648,7 @@ class RawTextDataset(data.Dataset):
 
         return word_embeddings, pos_one_hots, caption, sent_len
 
+
 class TextOnlyDataset(data.Dataset):
     def __init__(self, opt, mean, std, split_file):
         self.mean = mean
@@ -807,6 +813,11 @@ class HumanFeedbackNew(data.Dataset):
         return len(self.motions_list)
 
 
-class MOYO(HumanML3D):
+class HumanML3DFname(HumanML3D):
+    def __getitem__(self, item):
+        return (*super().__getitem__(item), self.t2m_dataset.name_list[item])
+
+
+class MOYO(HumanML3DFname):
     def __init__(self, mode, datapath='./dataset/moyo_opt.txt', split="all", **kwargs):
         super().__init__(mode, datapath, split, **kwargs)

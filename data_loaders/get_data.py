@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 from data_loaders.tensors import collate as all_collate
-from data_loaders.tensors import t2m_collate
+from data_loaders.tensors import t2m_collate, human_feedback_collate
 
 def get_dataset_class(name):
     if name == "amass":
@@ -31,8 +31,10 @@ def get_collate_fn(name, hml_mode='train'):
     if hml_mode == 'gt':
         from data_loaders.humanml.data.dataset import collate_fn as t2m_eval_collate
         return t2m_eval_collate
-    if name in ["humanml", "kit", "humanfeedback", "moyo"]:
+    if name in ["humanml", "kit", "humanfeedback"]:
         return t2m_collate
+    elif name in ["moyo"]:
+        return human_feedback_collate
     else:
         return all_collate
 

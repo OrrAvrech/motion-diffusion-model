@@ -66,31 +66,23 @@ HML_KNEE_JOINTS_BINARY = np.array([i in HML_KNEE_JOINTS for i in range(NUM_HML_J
 HML_HIP_JOINTS_BINARY = np.array([i in HML_HIP_JOINTS for i in range(NUM_HML_JOINTS)])
 HML_FEET_JOINTS_BINARY = np.array([i in HML_FEET_JOINTS for i in range(NUM_HML_JOINTS)])
 
-HML_LOWER_BACK_MASK = ~np.concatenate(([True]*(1+2+1),
+HML_LOWER_BACK_UNMASK = ~np.concatenate(([False]*(1+2+1),
                                      HML_LOWER_BACK_JOINTS_BINARY[1:].repeat(3),
                                      HML_LOWER_BACK_JOINTS_BINARY[1:].repeat(6),
                                      HML_LOWER_BACK_JOINTS_BINARY.repeat(3),
-                                     [True]*4))
-HML_UPPER_BACK_MASK = ~np.concatenate(([True]*(1+2+1),
+                                     [False]*4))
+HML_UPPER_BACK_UNMASK = ~np.concatenate(([False]*(1+2+1),
                                      HML_UPPER_BACK_JOINTS_BINARY[1:].repeat(3),
                                      HML_UPPER_BACK_JOINTS_BINARY[1:].repeat(6),
                                      HML_UPPER_BACK_JOINTS_BINARY.repeat(3),
-                                     [True]*4))
-HML_KNEE_MASK = ~np.concatenate(([True]*(1+2+1),
+                                     [False]*4))
+HML_KNEE_UNMASK = ~np.concatenate(([False]*(1+2+1),
                                 HML_KNEE_JOINTS_BINARY[1:].repeat(3),
                                 HML_KNEE_JOINTS_BINARY[1:].repeat(6),
                                 HML_KNEE_JOINTS_BINARY.repeat(3),
-                                [True]*4))
-HML_HIP_MASK = ~np.concatenate(([True]*(1+2+1),
+                                [False]*4))
+HML_HIP_UNMASK = ~np.concatenate(([False]*(1+2+1),
                                 HML_HIP_JOINTS_BINARY[1:].repeat(3),
                                 HML_HIP_JOINTS_BINARY[1:].repeat(6),
                                 HML_HIP_JOINTS_BINARY.repeat(3),
-                                [True]*4))
-HML_FEET_MASK = ~np.concatenate(([True]*(1+2+1),
-                                HML_FEET_JOINTS_BINARY[1:].repeat(3),
-                                HML_FEET_JOINTS_BINARY[1:].repeat(6),
-                                HML_FEET_JOINTS_BINARY.repeat(3),
-                                [True]*4))
-
-
-
+                                [False]*4))

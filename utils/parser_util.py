@@ -190,7 +190,7 @@ def add_edit_options(parser):
                        help="For in_between editing - Defines the end of input prefix (ratio from all frames).")
     group.add_argument("--suffix_start", default=0.75, type=float,
                        help="For in_between editing - Defines the start of input suffix (ratio from all frames).")
-    group.add_argument("--csv_path", help="timeline edits in the form of a csv file", type=str)
+    group.add_argument("--timeline_path", help="timeline edits in the form of a JSON file", type=str)
 
 
 def add_evaluation_options(parser):

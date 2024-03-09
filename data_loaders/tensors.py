@@ -67,8 +67,6 @@ def t2m_collate(batch):
 
 
 def human_feedback_collate(batch):
-    adapted_batch = [{'inp': b.T.float().unsqueeze(1),
-                      "text": "bla"} for b in batch]
-    return collate(adapted_batch)
+    return (*t2m_collate(batch), [b[-1] for b in batch])
 
 
