@@ -2,7 +2,7 @@ import os
 import torch
 import pyrallis
 from tqdm import tqdm
-from typing import Dict
+from typing import Dict, Optional
 from pathlib import Path
 from datetime import datetime
 from dataclasses import asdict
@@ -16,13 +16,28 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-class RecoverPositions:
-    # HumanML3D recover joint positions from vec
-    def __init__(self, num_joints: int):
-        self.num_joints = num_joints
+class RecoverInput:
+    # recover joint positions or HumanML3D vec
+    def __init__(self, njoints: int, data_rep: str):
+        self.njoints = njoints
+        self.data_rep = data_rep
 
     def __call__(self, sample):
-        xyz = recover_from_ric(sample, self.num_joints).permute(1, 2, 0)
+        # vec -> [njoints, nfeats, nframes]
+        if self.data_rep == "xyz":
+            vec = recover_from_ric(sample, self.njoints).permute(1, 2, 0)
+        else:
+            vec = sample.unsqueeze(1).permute(2, 1, 0)
+        return vec
+    
+
+class HML2XYZ:
+    def __init__(self, njoints: Optional[int] = 22):
+        self.njoints = njoints
+
+    def __call__(self, sample):
+        hml = sample.squeeze(2).permute(0, 2, 1)
+        xyz = recover_from_ric(hml, self.njoints)
         return xyz
     
 
@@ -70,15 +85,15 @@ def save_viz(gt: torch.Tensor, perturbated: torch.Tensor, pred: torch.Tensor,
              save_dir: Path, idx: str, fps: float = 40):
     save_dir.mkdir(exist_ok=True, parents=True)
     gt_save_path = save_dir / f"gt_{idx}.mp4"
-    gt_np = gt.detach().cpu().permute(2, 0, 1).numpy()
+    gt_np = gt.detach().cpu().numpy()
     plot_3d_motion(gt_save_path, gt_np, title="GT", fps=fps)
 
     pert_save_path = save_dir / f"pert_{idx}.mp4"
-    pert_np = perturbated.detach().cpu().permute(2, 0, 1).numpy()
+    pert_np = perturbated.detach().cpu().numpy()
     plot_3d_motion(pert_save_path, pert_np, title="Perturbed", fps=fps)
 
     pred_save_path = save_dir / f"pred_{idx}.mp4"
-    pred_np = pred.detach().cpu().permute(2, 0, 1).numpy()
+    pred_np = pred.detach().cpu().numpy()
     plot_3d_motion(pred_save_path, pred_np, title="Pred", fps=fps)
 
     saved_files = [gt_save_path, pert_save_path, pred_save_path]
@@ -93,7 +108,7 @@ def main(cfg: TrainRegressorConfig):
     save_dir = cfg.save_dir / f"{cfg.save_dir.name}_{run_time}"
     save_dir.mkdir(exist_ok=True, parents=True)
 
-    transform = RecoverPositions(cfg.model.njoints)
+    transform = RecoverInput(cfg.model.njoints, cfg.model.data_rep)
     train_ds = MotionPairsSplit(**asdict(cfg.dataset), split="train", sample_window=True, transform=transform)
     val_ds = MotionPairsSplit(**asdict(cfg.dataset), split="val", random_choice=False, transform=transform)
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
@@ -101,9 +116,16 @@ def main(cfg: TrainRegressorConfig):
 
     model = M2MRegressor(**asdict(cfg.model))
     device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
-    #model= nn.DataParallel(model, device_ids=cfg.device)
     model.to(device)
     model.rot2xyz.smpl_model.eval()
+    hml2xyz = HML2XYZ()
+
+    # get_xyz = lambda sample: model.rot2xyz(sample, mask=None, 
+    #                                        pose_rep=model.data_rep, 
+    #                                        translation=True,
+    #                                        glob=True,
+    #                                        jointstype='smpl',
+    #                                        vertstrans=False)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     early_stopper = EarlyStopper()
@@ -120,7 +142,12 @@ def main(cfg: TrainRegressorConfig):
             optimizer.zero_grad()
         
             output_motion = model(pert_motion)
-            loss = geomteric_loss(gt_motion, output_motion, weights=cfg.geometric_loss_weights)
+
+            # forward kinematics for loss
+            # gt_pos = get_xyz(gt_motion)
+            # output_pos = get_xyz(output_motion)
+            # loss = geomteric_loss(gt_pos, output_pos, weights=cfg.geometric_loss_weights)
+            loss = F.mse_loss(output_motion, gt_motion)
             
             loss.backward()
             optimizer.step()
@@ -138,7 +165,7 @@ def main(cfg: TrainRegressorConfig):
         
             with torch.no_grad():
                 output_motion = model(pert_motion)
-                batch_val_loss = geomteric_loss(gt_motion, output_motion, weights=cfg.geometric_loss_weights)
+                batch_val_loss = F.mse_loss(output_motion, gt_motion)
             val_loss += batch_val_loss
                 
         val_loss /= len(val_ds)
@@ -150,21 +177,24 @@ def main(cfg: TrainRegressorConfig):
             save_path = save_dir / f"{cfg.save_dir.name}_{run_time}.pt"
             torch.save(model.state_dict(), save_path)
             print(f"Saved model {save_path}")
-
+        
+        if early_stopper.stop(val_loss):
+            print("Early Stopping...")
+            print("Visualize motions on best model")
             # visualize motions on best model
+            gt_motion_pos = hml2xyz(gt_motion)
+            pert_motion_pos = hml2xyz(pert_motion)
+            output_motion_pos = hml2xyz(output_motion)
             for j in range(len(gt_motion)):
                     if j <= cfg.viz_samples_per_batch:
                         idx = f"epoch{epoch+1}_batch{i}_sample{j}"
                         save_dir_viz = save_dir / "viz" / f"epoch_{epoch}"
                         sample_seq_len = seq_len[j]
-                        save_viz(gt_motion[j, :, :, :sample_seq_len],
-                                 pert_motion[j, :, :, :sample_seq_len], 
-                                 output_motion[j, :, :, :sample_seq_len], 
+                        save_viz(gt_motion_pos[j, :sample_seq_len, :, :],
+                                 pert_motion_pos[j, :sample_seq_len, :, :], 
+                                 output_motion_pos[j, :sample_seq_len, :, :], 
                                  save_dir=save_dir_viz, 
                                  idx=idx)
-        
-        if early_stopper.stop(val_loss):
-            print("Early Stopping")
             break
 
 

@@ -191,6 +191,7 @@ def add_edit_options(parser):
     group.add_argument("--suffix_start", default=0.75, type=float,
                        help="For in_between editing - Defines the start of input suffix (ratio from all frames).")
     group.add_argument("--timeline_path", help="timeline edits in the form of a JSON file", type=str)
+    group.add_argument("--split_file", help="split file name", type=str)
 
 
 def add_evaluation_options(parser):

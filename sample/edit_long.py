@@ -119,7 +119,7 @@ def main():
     data = get_dataset_loader(name=args.dataset,
                               batch_size=args.batch_size,
                               num_frames=max_frames,
-                              split='experiment_12',
+                              split=args.split_file,
                               hml_mode='train')  # in train mode, you get both text and motion.
 
     print("Creating model and diffusion...")
@@ -161,7 +161,7 @@ def main():
             end_time = rep["end"]
             start = int(fps * start_time)
             end = int(fps * end_time)
-            inpainting = rep["body_part"]
+            inpainting = rep["body_part"].lower()
 
             texts = [text]
             edit_modes = [inpainting]
