@@ -3,7 +3,7 @@ import json
 import random
 from pathlib import Path
 import numpy as np
-from human_feedback.utils import get_gpt_sentences
+from human_feedback.data_utils import get_gpt_sentences
 
 
 def parse_sentence(sentence):

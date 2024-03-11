@@ -161,7 +161,7 @@ def main():
             end_time = rep["end"]
             start = int(fps * start_time)
             end = int(fps * end_time)
-            inpainting = rep["body_part"].lower()
+            inpainting = rep["body_part"].lower().replace(" ", "_")
 
             texts = [text]
             edit_modes = [inpainting]
