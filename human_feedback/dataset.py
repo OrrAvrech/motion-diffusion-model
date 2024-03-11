@@ -38,7 +38,7 @@ class MotionPairs(data.Dataset):
         gt_filepath = self.motion_files[idx]
         gt_motion = torch.Tensor(np.load(gt_filepath))
         pert_motion_dir = self.pert_dir / gt_filepath.stem
-        pert_motions_files = list(pert_motion_dir.glob("*.npy"))
+        pert_motions_files = list(pert_motion_dir.rglob("*.npy"))
         if self.random_choice is True:
             # randomly choose an element if more than one perturbations exist
             pert_filepath = random.choice(pert_motions_files)

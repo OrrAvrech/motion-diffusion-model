@@ -1,45 +1,20 @@
 import os
 import torch
+import wandb
 import pyrallis
 from tqdm import tqdm
-from typing import Dict, Optional
+from typing import Dict
 from pathlib import Path
-from datetime import datetime
 from dataclasses import asdict
 from torch.utils.data import DataLoader
 from model.regressor import M2MRegressor
 from human_feedback.config import TrainRegressorConfig
 from human_feedback.dataset import MotionPairsSplit
-from human_feedback.viz import plot_3d_motion, save_vid_list
-from data_loaders.humanml.scripts.motion_process import recover_from_ric
+from human_feedback.motion_utils import RecoverInput, HML2XYZ
+from human_feedback.viz import save_viz
 import torch.nn.functional as F
 import torch.nn as nn
 
-
-class RecoverInput:
-    # recover joint positions or HumanML3D vec
-    def __init__(self, njoints: int, data_rep: str):
-        self.njoints = njoints
-        self.data_rep = data_rep
-
-    def __call__(self, sample):
-        # vec -> [njoints, nfeats, nframes]
-        if self.data_rep == "xyz":
-            vec = recover_from_ric(sample, self.njoints).permute(1, 2, 0)
-        else:
-            vec = sample.unsqueeze(1).permute(2, 1, 0)
-        return vec
-    
-
-class HML2XYZ:
-    def __init__(self, njoints: Optional[int] = 22):
-        self.njoints = njoints
-
-    def __call__(self, sample):
-        hml = sample.squeeze(2).permute(0, 2, 1)
-        xyz = recover_from_ric(hml, self.njoints)
-        return xyz
-    
 
 class EarlyStopper:
     def __init__(self, patience: int = 3, min_delta: float = 0):
@@ -61,6 +36,8 @@ class EarlyStopper:
 
 def geomteric_loss(pos_true: torch.Tensor, pos_pred: torch.Tensor, weights: Dict[str, float]):
     # xyz loss
+    pos_true = pos_true.permute(0, 2, 3, 1)
+    pos_pred = pos_pred.permute(0, 2, 3, 1)
     pos_loss = F.mse_loss(pos_pred, pos_true)
     # velocities loss (TODO: consider removing root joint for this)
     vel_true = (pos_true[..., 1:] - pos_true[..., :-1])
@@ -81,51 +58,26 @@ def geomteric_loss(pos_true: torch.Tensor, pos_pred: torch.Tensor, weights: Dict
     return loss
 
 
-def save_viz(gt: torch.Tensor, perturbated: torch.Tensor, pred: torch.Tensor, 
-             save_dir: Path, idx: str, fps: float = 40):
-    save_dir.mkdir(exist_ok=True, parents=True)
-    gt_save_path = save_dir / f"gt_{idx}.mp4"
-    gt_np = gt.detach().cpu().numpy()
-    plot_3d_motion(gt_save_path, gt_np, title="GT", fps=fps)
-
-    pert_save_path = save_dir / f"pert_{idx}.mp4"
-    pert_np = perturbated.detach().cpu().numpy()
-    plot_3d_motion(pert_save_path, pert_np, title="Perturbed", fps=fps)
-
-    pred_save_path = save_dir / f"pred_{idx}.mp4"
-    pred_np = pred.detach().cpu().numpy()
-    plot_3d_motion(pred_save_path, pred_np, title="Pred", fps=fps)
-
-    saved_files = [gt_save_path, pert_save_path, pred_save_path]
-    save_path = save_dir / f"{idx}.mp4"
-    save_vid_list(saved_files=saved_files, save_path=save_path)
-    [os.remove(filepath) for filepath in saved_files]
-
-
 @pyrallis.wrap()
 def main(cfg: TrainRegressorConfig):
-    run_time = datetime.now().strftime("%Y%m%d_%H%M")
-    save_dir = cfg.save_dir / f"{cfg.save_dir.name}_{run_time}"
-    save_dir.mkdir(exist_ok=True, parents=True)
+    
+    wandb.login()
+    wandb.init(project="m2m-regressor", config=asdict(cfg))
 
+    save_dir = cfg.save_dir
     transform = RecoverInput(cfg.model.njoints, cfg.model.data_rep)
-    train_ds = MotionPairsSplit(**asdict(cfg.dataset), split="train", sample_window=True, transform=transform)
-    val_ds = MotionPairsSplit(**asdict(cfg.dataset), split="val", random_choice=False, transform=transform)
+    train_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
+    val_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
 
     model = M2MRegressor(**asdict(cfg.model))
+    if cfg.model_path is not None:
+        model.load_state_dict(torch.load(cfg.model_path))
     device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.rot2xyz.smpl_model.eval()
     hml2xyz = HML2XYZ()
-
-    # get_xyz = lambda sample: model.rot2xyz(sample, mask=None, 
-    #                                        pose_rep=model.data_rep, 
-    #                                        translation=True,
-    #                                        glob=True,
-    #                                        jointstype='smpl',
-    #                                        vertstrans=False)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     early_stopper = EarlyStopper()
@@ -144,10 +96,10 @@ def main(cfg: TrainRegressorConfig):
             output_motion = model(pert_motion)
 
             # forward kinematics for loss
-            # gt_pos = get_xyz(gt_motion)
-            # output_pos = get_xyz(output_motion)
-            # loss = geomteric_loss(gt_pos, output_pos, weights=cfg.geometric_loss_weights)
-            loss = F.mse_loss(output_motion, gt_motion)
+            gt_pos = hml2xyz(gt_motion)
+            output_pos = hml2xyz(output_motion)
+            gloss = geomteric_loss(gt_pos, output_pos, weights=cfg.geometric_loss_weights)
+            loss = F.mse_loss(output_motion, gt_motion) + gloss
             
             loss.backward()
             optimizer.step()
@@ -165,36 +117,36 @@ def main(cfg: TrainRegressorConfig):
         
             with torch.no_grad():
                 output_motion = model(pert_motion)
-                batch_val_loss = F.mse_loss(output_motion, gt_motion)
+                batch_val_gloss = geomteric_loss(gt_pos, output_pos, weights=cfg.geometric_loss_weights)
+                batch_val_loss = F.mse_loss(output_motion, gt_motion) + batch_val_gloss
             val_loss += batch_val_loss
                 
         val_loss /= len(val_ds)
 
-        print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss:.4f}, Validation-Loss: {val_loss:.4f}")
+        wandb.log({"loss": train_loss, "val_loss": val_loss})
+        print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss}, Validation-Loss: {val_loss}")
         
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_path = save_dir / f"{cfg.save_dir.name}_{run_time}.pt"
+            save_path = save_dir / f"{cfg.save_dir.name}.pt"
             torch.save(model.state_dict(), save_path)
             print(f"Saved model {save_path}")
         
         if early_stopper.stop(val_loss):
-            print("Early Stopping...")
-            print("Visualize motions on best model")
-            # visualize motions on best model
+            # visualize motions
             gt_motion_pos = hml2xyz(gt_motion)
             pert_motion_pos = hml2xyz(pert_motion)
             output_motion_pos = hml2xyz(output_motion)
             for j in range(len(gt_motion)):
-                    if j <= cfg.viz_samples_per_batch:
-                        idx = f"epoch{epoch+1}_batch{i}_sample{j}"
-                        save_dir_viz = save_dir / "viz" / f"epoch_{epoch}"
-                        sample_seq_len = seq_len[j]
-                        save_viz(gt_motion_pos[j, :sample_seq_len, :, :],
-                                 pert_motion_pos[j, :sample_seq_len, :, :], 
-                                 output_motion_pos[j, :sample_seq_len, :, :], 
-                                 save_dir=save_dir_viz, 
-                                 idx=idx)
+                if j+1 <= cfg.viz_samples_per_batch:
+                    idx = f"epoch{epoch}_batch{i}_sample{j}"
+                    sample_seq_len = seq_len[j]
+                    vid_path = save_viz(gt_motion_pos[j, :sample_seq_len, :, :],
+                                        pert_motion_pos[j, :sample_seq_len, :, :], 
+                                        output_motion_pos[j, :sample_seq_len, :, :], 
+                                        save_dir=save_dir, 
+                                        idx=idx)
+                    wandb.log({"video": wandb.Video(str(vid_path))})
             break
 
 

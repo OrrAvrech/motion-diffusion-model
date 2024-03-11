@@ -87,7 +87,8 @@ class M2MRegressor(nn.Module):
         x = self.input_process(x)
 
         if self.arch == 'trans_enc':
-            output = self.seqTransEncoder(x)  # , src_key_padding_mask=~maskseq)  # [seqlen, bs, d]
+            xseq = self.sequence_pos_encoder(x)
+            output = self.seqTransEncoder(xseq)  # , src_key_padding_mask=~maskseq)  # [seqlen, bs, d]
 
         elif self.arch == 'trans_dec':
             xseq = x

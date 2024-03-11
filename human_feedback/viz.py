@@ -1,4 +1,5 @@
 import os
+import torch
 from pathlib import Path
 from typing import List
 import matplotlib.pyplot as plt
@@ -17,7 +18,6 @@ def save_vid_list(saved_files: List[Path], save_path: Path):
     os.system(ffmpeg_rep_cmd)
 
 
-
 def plot_xzPlane(minx, maxx, miny, minz, maxz):
     verts = [
         [minx, miny, minz],
@@ -28,7 +28,6 @@ def plot_xzPlane(minx, maxx, miny, minz, maxz):
     xz_plane = Poly3DCollection([verts])
     xz_plane.set_facecolor((0.5, 0.5, 0.5, 0.5))
     return xz_plane
-
 
 
 def plot_3d_motion(
@@ -128,3 +127,25 @@ def plot_3d_motion(
 
     ani.save(save_path, fps=fps)
     plt.close()
+
+
+def save_viz(gt: torch.Tensor, perturbated: torch.Tensor, pred: torch.Tensor, 
+             save_dir: Path, idx: str, fps: float = 20) -> Path:
+    save_dir.mkdir(exist_ok=True, parents=True)
+    gt_save_path = save_dir / f"gt_{idx}.mp4"
+    gt_np = gt.detach().cpu().numpy()
+    plot_3d_motion(gt_save_path, gt_np, title="GT", fps=fps)
+
+    pert_save_path = save_dir / f"pert_{idx}.mp4"
+    pert_np = perturbated.detach().cpu().numpy()
+    plot_3d_motion(pert_save_path, pert_np, title="Perturbed", fps=fps)
+
+    pred_save_path = save_dir / f"pred_{idx}.mp4"
+    pred_np = pred.detach().cpu().numpy()
+    plot_3d_motion(pred_save_path, pred_np, title="Pred", fps=fps)
+
+    saved_files = [gt_save_path, pert_save_path, pred_save_path]
+    save_path = save_dir / f"{idx}.mp4"
+    save_vid_list(saved_files=saved_files, save_path=save_path)
+    [os.remove(filepath) for filepath in saved_files]
+    return save_path

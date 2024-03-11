@@ -35,9 +35,23 @@ class TrainRegressorConfig:
     weight_decay: float
     geometric_loss_weights: Dict[str, float]
     save_dir: Path
+    model_path: Optional[Path] = None
     viz_samples_per_batch: Optional[int] = 0
     device: Optional[Union[List[int], int]] = 0
+    train_split_file: Optional[str] = "train"
+    val_split_file: Optional[str] = "val"
 
     def __post_init__(self):
         self.save_dir.mkdir(exist_ok=True, parents=True)
 
+
+@dataclass
+class EvalConfig:
+    dataset: MotionDatasetConfig
+    model: EncoderConfig
+    model_path: Path
+    batch_size: int
+    viz_samples_per_batch: Optional[int] = 0
+    device: Optional[Union[List[int], int]] = 0
+    train_split_file: Optional[str] = "train"
+    val_split_file: Optional[str] = "val"
