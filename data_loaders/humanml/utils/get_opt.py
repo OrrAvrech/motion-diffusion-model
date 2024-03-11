@@ -69,9 +69,11 @@ def get_opt(opt_path, device):
         opt.dim_pose = 251
         opt.max_motion_length = 196
     elif opt.dataset_name =="humanfeedback":
-        opt.data_root = './dataset/HumanFeedback'
-        opt.motion_dir = pjoin(opt.data_root, 'new_joint_vecs')
-        opt.text_dir = pjoin(opt.data_root, 'texts')
+        opt.data_root = './dataset/MOYO'
+        # opt.motion_dir = pjoin(opt.data_root, 'new_joint_vecs')
+        # opt.text_dir = pjoin(opt.data_root, 'texts')
+        opt.motion_dir = pjoin(opt.data_root, 'human_feedback', 'new_joint_vecs_split')
+        opt.text_dir = pjoin(opt.data_root, 'texts_split')
         opt.joints_num = 22
         opt.dim_pose = 263
         opt.max_motion_length = 196

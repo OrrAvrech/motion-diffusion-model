@@ -31,9 +31,9 @@ def get_collate_fn(name, hml_mode='train'):
     if hml_mode == 'gt':
         from data_loaders.humanml.data.dataset import collate_fn as t2m_eval_collate
         return t2m_eval_collate
-    if name in ["humanml", "kit", "humanfeedback"]:
+    if name in ["humanml", "kit", "moyo"]:
         return t2m_collate
-    elif name in ["moyo"]:
+    elif name in ["humanfeedback"]:
         return human_feedback_collate
     else:
         return all_collate
