@@ -16,7 +16,7 @@ def main(cfg: EvalConfig):
     save_dir = model_dir / "viz"
     save_dir.mkdir(exist_ok=True, parents=True)
 
-    transform = RecoverInput(cfg.model.njoints, cfg.model.data_rep)
+    transform = RecoverInput(cfg.model.data_rep, cfg.model.njoints)
     val_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
 
@@ -25,7 +25,7 @@ def main(cfg: EvalConfig):
     device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.rot2xyz.smpl_model.eval()
-    hml2xyz = HML2XYZ()
+    hml2xyz = HML2XYZ(cfg.model.data_rep)
 
     # Validation Loop
     model.eval()

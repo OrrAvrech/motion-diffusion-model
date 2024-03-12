@@ -65,7 +65,7 @@ def main(cfg: TrainRegressorConfig):
     wandb.init(project="m2m-regressor", config=asdict(cfg))
 
     save_dir = cfg.save_dir
-    transform = RecoverInput(cfg.model.njoints, cfg.model.data_rep)
+    transform = RecoverInput(cfg.model.data_rep, cfg.model.njoints)
     train_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
     val_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
@@ -77,7 +77,7 @@ def main(cfg: TrainRegressorConfig):
     device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.rot2xyz.smpl_model.eval()
-    hml2xyz = HML2XYZ()
+    hml2xyz = HML2XYZ(cfg.model.data_rep)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     early_stopper = EarlyStopper()
