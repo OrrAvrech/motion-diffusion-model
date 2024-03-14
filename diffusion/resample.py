@@ -65,6 +65,14 @@ class UniformSampler(ScheduleSampler):
 
     def weights(self):
         return self._weights
+    
+
+class UniformStepsSampler(ScheduleSampler):
+    def __init__(self, num_timesteps: int) -> None:
+        self._weights = np.ones([num_timesteps])
+
+    def weights(self):
+        return self._weights
 
 
 class LossAwareSampler(ScheduleSampler):
