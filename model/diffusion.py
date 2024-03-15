@@ -377,10 +377,10 @@ class GaussianDiffusion(nn.Module):
             model_variance, model_log_variance = {
                 # for fixedlarge, we set the initial (log-)variance like so
                 # to get a better decoder log likelihood.
-                ModelVarType.FIXED_LARGE: (
-                    np.append(self.posterior_variance[1], self.betas[1:]),
-                    np.log(np.append(self.posterior_variance[1], self.betas[1:])),
-                ),
+                # ModelVarType.FIXED_LARGE: (
+                #     np.append(self.posterior_variance[1], self.betas[1:]),
+                #     np.log(np.append(self.posterior_variance[1], self.betas[1:])),
+                # ),
                 ModelVarType.FIXED_SMALL: (
                     self.posterior_variance,
                     self.posterior_log_variance_clipped,
@@ -541,7 +541,7 @@ class GaussianDiffusion(nn.Module):
         self,
         x,
         t,
-        clip_denoised=True,
+        clip_denoised=False,
         denoised_fn=None,
         cond_fn=None,
         model_kwargs=None,
@@ -589,7 +589,7 @@ class GaussianDiffusion(nn.Module):
         self,
         x,
         t,
-        clip_denoised=True,
+        clip_denoised=False,
         denoised_fn=None,
         cond_fn=None,
         model_kwargs=None,
@@ -635,7 +635,7 @@ class GaussianDiffusion(nn.Module):
         self,
         shape,
         noise=None,
-        clip_denoised=True,
+        clip_denoised=False,
         denoised_fn=None,
         cond_fn=None,
         model_kwargs=None,

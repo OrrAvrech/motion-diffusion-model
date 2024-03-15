@@ -61,6 +61,8 @@ class TrainDiffusionConfig:
     weight_decay: float
     geometric_loss_weights: Dict[str, float]
     save_dir: Path
+    patience: Optional[int] = 3
+    log_interval: Optional[int] = None
     model_path: Optional[Path] = None
     viz_samples_per_batch: Optional[int] = 0
     device: Optional[Union[List[int], int]] = 0
@@ -69,6 +71,8 @@ class TrainDiffusionConfig:
 
     def __post_init__(self):
         self.save_dir.mkdir(exist_ok=True, parents=True)
+        if self.log_interval is None:
+            self.log_interval = self.epochs - 1 # record last epoch only by default
 
 
 @dataclass
