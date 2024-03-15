@@ -21,7 +21,6 @@ class EncoderConfig:
     dropout: float = 0.1
     activation: str = "gelu"
     data_rep: str = "rot6d" 
-    dataset: str = "amass"
     arch: str = "trans_enc"
 
 

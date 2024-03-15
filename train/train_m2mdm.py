@@ -36,28 +36,10 @@ class EarlyStopper:
         return False
     
 
-def geomteric_loss(pos_true: torch.Tensor, pos_pred: torch.Tensor, weights: Dict[str, float]):
-    # xyz loss
-    pos_true = pos_true.permute(0, 2, 3, 1)
-    pos_pred = pos_pred.permute(0, 2, 3, 1)
-    pos_loss = F.mse_loss(pos_pred, pos_true)
-    # velocities loss (TODO: consider removing root joint for this)
-    vel_true = (pos_true[..., 1:] - pos_true[..., :-1])
-    vel_pred = (pos_pred[..., 1:] - pos_pred[..., :-1])
-    vel_loss = F.mse_loss(vel_pred, vel_true)
-    # foot contact loss
-    l_ankle_idx, r_ankle_idx, l_foot_idx, r_foot_idx = 7, 8, 10, 11
-    relevant_joints = [l_ankle_idx, l_foot_idx, r_ankle_idx, r_foot_idx]
-    gt_joint_xyz = pos_true[:, relevant_joints, :, :]  # [BatchSize, 4, 3, Frames]
-    gt_joint_vel = torch.linalg.norm(gt_joint_xyz[:, :, :, 1:] - gt_joint_xyz[:, :, :, :-1], axis=2)  # [BatchSize, 4, Frames]
-    fc_mask = torch.unsqueeze((gt_joint_vel <= 0.01), dim=2).repeat(1, 1, 3, 1)
-    pred_joint_xyz = pos_pred[:, relevant_joints, :, :]  # [BatchSize, 4, 3, Frames]
-    pred_vel = pred_joint_xyz[:, :, :, 1:] - pred_joint_xyz[:, :, :, :-1]
-    pred_vel[~fc_mask] = 0
-    fc_loss = F.mse_loss(pred_vel, torch.zeros_like(pred_vel, device=pred_vel.device))
-    # geometric loss
-    loss = weights["pos"] * pos_loss + weights["vel"] * vel_loss + weights["foot"] * fc_loss
-    return loss
+def lengths_to_mask(lengths: torch.Tensor, max_len: int) -> torch.Tensor:
+    mask = torch.arange(max_len, device=lengths.device).expand(len(lengths), max_len) < lengths.unsqueeze(1)
+    mask = mask.unsqueeze(1).unsqueeze(1)
+    return mask
 
 
 @pyrallis.wrap()
@@ -66,12 +48,13 @@ def main(cfg: TrainDiffusionConfig):
     # wandb.login()
     # wandb.init(project="m2m-regressor", config=asdict(cfg))
 
-    save_dir = cfg.save_dir
+    # save_dir = cfg.save_dir
     transform = RecoverInput(cfg.model.data_rep, cfg.model.njoints)
     train_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
-    val_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
+    # val_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
+    # val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
+    max_len = train_ds.max_frames
 
     model = M2MDM(**asdict(cfg.model))
     diffusion = GaussianDiffusion(model=model,
@@ -86,12 +69,12 @@ def main(cfg: TrainDiffusionConfig):
     diffusion.to(device)
 
     model.smpl.smpl_model.eval()
-    hml2xyz = HML2XYZ(cfg.model.data_rep)
+    # hml2xyz = HML2XYZ(cfg.model.data_rep)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
-    early_stopper = EarlyStopper()
+    # early_stopper = EarlyStopper()
 
-    best_val_loss = float("inf")
+    # best_val_loss = float("inf")
     for epoch in range(cfg.epochs):
         model.train()
         train_loss = 0.0
@@ -99,20 +82,29 @@ def main(cfg: TrainDiffusionConfig):
         for batch in tqdm(train_loader):
             optimizer.zero_grad()
 
-            gt_motion, pert_motion, _ = batch
+            gt_motion, pert_motion, seq_len = batch
+            curr_batch_size = gt_motion.shape[0]
             gt_motion = gt_motion.to(device)
             pert_motion = pert_motion.to(device)
-            schedule_sampler = UniformStepsSampler(cfg.diffusion.nsteps)
-            t, weights = schedule_sampler.sample(cfg.batch_size, device)
+            seq_len = seq_len.to(device)
 
-            loss = diffusion(gt_motion, t, pert_motion)
-            loss = loss * weights 
+            schedule_sampler = UniformStepsSampler(cfg.diffusion.nsteps)
+            t, weights = schedule_sampler.sample(curr_batch_size, device)
+
+            mask = lengths_to_mask(seq_len, max_len)
+            cond = {"y": {"mask": mask, 
+                          "motion": pert_motion,
+                          "lengths": seq_len}}
+            loss = diffusion(gt_motion, t, cond)
+            loss = (loss * weights).mean()
 
             loss.backward()
             optimizer.step()
 
             train_loss += loss.item() * gt_motion.size(0)
+
         train_loss /= len(train_ds)
+        print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss}")
 
 
 if __name__ == "__main__":

@@ -1,19 +1,17 @@
 import torch
 import torch.nn as nn
 from model.mdm import InputProcess, OutputProcess, PositionalEncoding
-from model.rotation2xyz import Rotation2xyz
+from model.rotation2xyz import Rot2xyz
 
 
 class M2MRegressor(nn.Module):
     def __init__(self, njoints, nfeats, latent_dim=256, ff_size=1024, num_layers=8, 
-                 num_heads=4, dropout=0.1, activation="gelu", data_rep='rot6d', 
-                 dataset='amass', arch='trans_enc', **kargs):
+                 num_heads=4, dropout=0.1, activation="gelu", data_rep='rot6d', arch='trans_enc', **kargs):
         super().__init__()
 
         self.njoints = njoints
         self.nfeats = nfeats
         self.data_rep = data_rep
-        self.dataset = dataset
 
         self.latent_dim = latent_dim
         self.ff_size = ff_size
@@ -23,8 +21,6 @@ class M2MRegressor(nn.Module):
 
         self.activation = activation
         self.input_feats = self.njoints * self.nfeats
-
-        self.normalize_output = kargs.get('normalize_encoder_output', False)
 
         self.arch = arch
         self.input_process = InputProcess(self.data_rep, self.input_feats+self.gru_emb_dim, self.latent_dim)
@@ -56,7 +52,7 @@ class M2MRegressor(nn.Module):
         self.output_process = OutputProcess(self.data_rep, self.input_feats, self.latent_dim, self.njoints,
                                             self.nfeats)
 
-        self.rot2xyz = Rotation2xyz(device='cpu', dataset=self.dataset)
+        self.rot2xyz = Rot2xyz()
 
     def forward(self, x):
         """

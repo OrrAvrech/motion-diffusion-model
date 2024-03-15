@@ -1,14 +1,14 @@
 import torch
 import torch.nn as nn
-from model.regressor import M2MRegressor
-from model.mdm import InputProcess, OutputProcess, PositionalEncoding, TimestepEmbedder, MotionEmbedder
-from model.diffusion import GaussianDiffusion
-from model.rotation2xyz import Rotation2xyz
+from torch import Tensor
+from typing import Dict
+from model.mdm import InputProcess, CondProjection, OutputProcess, PositionalEncoding, TimestepEmbedder
+from model.rotation2xyz import Rot2xyz
 
 
 class M2MDM(nn.Module):
     def __init__(self, njoints, nfeats, latent_dim=256, ff_size=1024, num_layers=8, 
-                 num_heads=4, dropout=0.1, activation="gelu", data_rep='rot6d', dataset='amass', 
+                 num_heads=4, dropout=0.1, activation="gelu", data_rep='rot6d',
                  cond_dim=263, arch='trans_enc', emb_trans_dec=False):
         super().__init__()
 
@@ -16,7 +16,6 @@ class M2MDM(nn.Module):
         self.njoints = njoints
         self.nfeats = nfeats
         self.data_rep = data_rep
-        self.dataset = dataset
 
         # input dimensions
         self.cond_dim = cond_dim
@@ -37,31 +36,21 @@ class M2MDM(nn.Module):
 
         self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
         self.input_process = InputProcess(self.data_rep, self.input_feats, self.latent_dim)
+        seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
+                                                          nhead=self.num_heads,
+                                                          dim_feedforward=self.ff_size,
+                                                          dropout=self.dropout,
+                                                          activation=self.activation)
 
-        self.cond_projection = nn.Linear(cond_dim, latent_dim)
-        self.cond_encoder = nn.Sequential()
-        for _ in range(2):
-            self.cond_encoder.append(
-                nn.TransformerEncoderLayer(
-                    d_model=self.latent_dim,
-                    nhead=self.num_heads,
-                    dim_feedforward=self.ff_size,
-                    dropout=self.dropout,
-                    activation=self.activation,
-                )
-            )
+        self.cond_projection = CondProjection(self.data_rep, self.input_feats, self.latent_dim)
+        self.cond_encoder = nn.TransformerEncoder(seqTransEncoderLayer, num_layers=2)
 
         self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
-        self.embed_motion = MotionEmbedder(self.latent_dim, self.sequence_pos_encoder)
+        self.embed_motion = nn.Linear(self.latent_dim, self.latent_dim)
         self.emb_trans_dec = emb_trans_dec
 
         if self.arch == 'trans_enc':
             print("TRANS_ENC init")
-            seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
-                                                                nhead=self.num_heads,
-                                                                dim_feedforward=self.ff_size,
-                                                                dropout=self.dropout,
-                                                                activation=self.activation)
 
             self.seqTransEncoder = nn.TransformerEncoder(seqTransEncoderLayer,
                                                          num_layers=self.num_layers)
@@ -80,10 +69,10 @@ class M2MDM(nn.Module):
         self.output_process = OutputProcess(self.data_rep, self.input_feats, self.latent_dim, self.njoints,
                                             self.nfeats)
       
-        self.smpl = Rotation2xyz(device='cpu', dataset=dataset)
+        self.smpl = Rot2xyz()
 
     def mask_cond(self, cond, cond_mask_prob=0.0, force_mask=False):
-        bs, _ = cond.shape
+        bs = cond.shape[1]
         if force_mask:
             return torch.zeros_like(cond)
         elif self.training and cond_mask_prob > 0.:
@@ -93,7 +82,7 @@ class M2MDM(nn.Module):
             return cond
 
 
-    def forward(self, x: torch.Tensor, timesteps: torch.Tensor, cond_embed: torch.Tensor, cond_mask_prob: float = 0.0):
+    def forward(self, x: Tensor, timesteps: Tensor, y: Dict, cond_mask_prob: float = 0.0):
         """
         x: [batch_size, njoints, nfeats, max_frames], denoted x_t in the paper
         timesteps: [batch_size] (int)
@@ -102,12 +91,15 @@ class M2MDM(nn.Module):
         emb = self.embed_timestep(timesteps)  # [1, bs, d]
 
         # encode cond
+        cond_embed = y["motion"]
         cond_tokens = self.cond_projection(cond_embed)
         cond_tokens = self.sequence_pos_encoder(cond_tokens)
         cond_tokens = self.cond_encoder(cond_tokens)
 
         # mask and project cond
-        emb += self.embed_motion(self.mask_cond(cond_tokens, cond_mask_prob))
+        cond_mask = self.mask_cond(cond_tokens, cond_mask_prob)
+        cond_mask_pooled = cond_mask.mean(dim=0).unsqueeze(0)
+        emb += self.embed_motion(cond_mask_pooled)
 
         x = self.input_process(x)
 

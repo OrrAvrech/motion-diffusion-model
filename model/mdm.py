@@ -262,6 +262,11 @@ class InputProcess(nn.Module):
             raise ValueError
 
 
+class CondProjection(InputProcess):
+    def __init__(self, data_rep, input_feats, latent_dim):
+        super().__init__(data_rep, input_feats, latent_dim)
+
+
 class OutputProcess(nn.Module):
     def __init__(self, data_rep, input_feats, latent_dim, njoints, nfeats):
         super().__init__()
