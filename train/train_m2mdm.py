@@ -3,11 +3,10 @@ import torch
 import wandb
 import pyrallis
 from tqdm import tqdm
-from typing import Dict
-from pathlib import Path
 from dataclasses import asdict
 from torch.utils.data import DataLoader
-from model.m2mdm import M2MDM
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from model.m2mdm import EncoderM2MDM
 from model.diffusion import GaussianDiffusion
 from diffusion.resample import UniformStepsSampler
 from human_feedback.config import TrainDiffusionConfig
@@ -46,7 +45,7 @@ def lengths_to_mask(lengths: torch.Tensor, max_len: int) -> torch.Tensor:
 def main(cfg: TrainDiffusionConfig):
     
     wandb.login()
-    wandb.init(project="m2mdm-humanml", config=asdict(cfg))
+    run = wandb.init(project="m2mdm-humanml", config=asdict(cfg))
 
     save_dir = cfg.save_dir
     transform = RecoverInput(cfg.model.data_rep, cfg.model.njoints)
@@ -56,7 +55,7 @@ def main(cfg: TrainDiffusionConfig):
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
     max_len = train_ds.max_frames
 
-    model = M2MDM(**asdict(cfg.model))
+    model = EncoderM2MDM(**asdict(cfg.model))
     diffusion = GaussianDiffusion(model=model,
                                   diffusion_steps=cfg.diffusion.nsteps,
                                   noise_schedule=cfg.diffusion.noise_schedule)
@@ -73,6 +72,7 @@ def main(cfg: TrainDiffusionConfig):
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     early_stopper = EarlyStopper(cfg.patience)
+    lr_scheduler = ReduceLROnPlateau(optimizer, "min")
 
     best_val_mse = float("inf")
     for epoch in range(cfg.epochs):
@@ -130,8 +130,10 @@ def main(cfg: TrainDiffusionConfig):
 
         val_mse /= len(val_ds)
         val_mpjpe /= len(val_ds)
+        curr_lr = optimizer.param_groups[0]['lr']
+        lr_scheduler.step(val_mse)
 
-        wandb.log({"train/loss": train_loss, "val/mse": val_mse, "val/mpjpe": val_mpjpe})
+        logs = {"train/loss": train_loss, "val/mse": val_mse, "val/mpjpe": val_mpjpe, "learning-rate": curr_lr}
         print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss}, Validation-MSE: {val_mse}, Validation-MPJPE: {val_mpjpe}")
 
         if val_mse < best_val_mse:
@@ -143,6 +145,7 @@ def main(cfg: TrainDiffusionConfig):
         if epoch % cfg.log_interval == 0:
             save_dir_viz = save_dir / f"viz_{save_dir.name}"
             print(f"Visualize motions saved in {save_dir_viz}")
+            examples = []
             for j in range(len(gt_motion)):
                 if j+1 <= cfg.viz_samples_per_batch:
                     idx = f"epoch{epoch}_batch{i}_sample{j}"
@@ -152,8 +155,10 @@ def main(cfg: TrainDiffusionConfig):
                                         output_motion_pos[j, :sample_seq_len, :, :], 
                                         save_dir=save_dir_viz, 
                                         idx=idx)
-                    wandb.log({"video": wandb.Video(str(vid_path))})
-
+                    examples.append(wandb.Video(str(vid_path)))
+            logs.update({"videos": examples})
+        run.log(logs)
+        
         if early_stopper.stop(val_mse):
             print(f"Early stop, no improvement for {early_stopper.patience} epochs")
             break
