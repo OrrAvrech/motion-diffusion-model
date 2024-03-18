@@ -17,6 +17,18 @@ class MotionPairs(data.Dataset):
         self.transform = transform
         self.motion_files = list(self.input_dir.rglob("*.npy"))
 
+        self.mean = 0.0
+        mean_npy_path = input_dir.parent / "Mean.npy"
+        if mean_npy_path.exists():
+            print(f"load mean from {mean_npy_path}")
+            self.mean = np.load(mean_npy_path).astype(np.float32)
+
+        self.std = 1.0
+        std_npy_path = input_dir.parent / "Std.npy"
+        if std_npy_path.exists():
+            print(f"load std from {std_npy_path}")
+            self.std = np.load(std_npy_path).astype(np.float32)
+
     def process_motion(self, motion: torch.Tensor) -> torch.Tensor:
         seq_len = motion.shape[0]
         if seq_len < self.max_frames:
@@ -32,7 +44,15 @@ class MotionPairs(data.Dataset):
                 motion_proc = motion[start_idx:start_idx + self.max_frames, ...]
             else:
                 motion_proc = motion[:self.max_frames, ...]
+
+        # Z Normalization
+        motion_proc = (motion_proc - self.mean) / self.std
         return motion_proc, seq_len
+
+    def denormalize(self, motion: torch.Tensor):
+        mean = (torch.Tensor(self.mean) * torch.ones(motion.shape[1])).view(1, -1, 1, 1)
+        std = (torch.Tensor(self.std) * torch.ones(motion.shape[1])).view(1, -1, 1, 1)
+        return motion * std + mean
 
     def __getitem__(self, idx) -> Tuple[torch.Tensor, torch.Tensor]:
         gt_filepath = self.motion_files[idx]

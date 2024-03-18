@@ -169,8 +169,10 @@ class GaussianDiffusion(nn.Module):
     def __init__(
         self,
         model,
-        diffusion_steps,
+        nsteps,
         noise_schedule,
+        cond_mask_prob,
+        guidance_weight,
         model_mean_type=ModelMeanType.START_X,
         model_var_type=ModelVarType.FIXED_SMALL,
         loss_type=LossType.MSE,
@@ -189,13 +191,17 @@ class GaussianDiffusion(nn.Module):
         self.rescale_timesteps = rescale_timesteps
         self.data_rep = data_rep
 
+        # guidance params
+        self.cond_mask_prob = cond_mask_prob
+        self.guidance_weight = guidance_weight
+
         # geometric loss parameters
         self.lambda_rcxyz = lambda_rcxyz
         self.lambda_vel = lambda_vel
         self.lambda_fc = lambda_fc
 
         # Use float64 for accuracy.
-        betas = get_named_beta_schedule(noise_schedule, diffusion_steps)
+        betas = get_named_beta_schedule(noise_schedule, nsteps)
         betas = torch.Tensor(betas).double()
 
         self.num_timesteps = int(betas.shape[0])
@@ -347,7 +353,8 @@ class GaussianDiffusion(nn.Module):
 
         B, C = x.shape[:2]
         assert t.shape == (B,)
-        model_output = self.model(x, self._scale_timesteps(t), **model_kwargs)
+        # model_output = self.model(x, self._scale_timesteps(t), **model_kwargs)
+        model_output = self.model.guided_forward(x, self._scale_timesteps(t), **model_kwargs, guidance_weight=self.guidance_weight)
 
         if 'inpainting_mask' in model_kwargs['y'].keys() and 'inpainted_motion' in model_kwargs['y'].keys():
             inpainting_mask, inpainted_motion = model_kwargs['y']['inpainting_mask'], model_kwargs['y']['inpainted_motion']
@@ -386,11 +393,6 @@ class GaussianDiffusion(nn.Module):
                     self.posterior_log_variance_clipped,
                 ),
             }[self.model_var_type]
-            # print('model_variance', model_variance)
-            # print('model_log_variance',model_log_variance)
-            # print('self.posterior_variance', self.posterior_variance)
-            # print('self.posterior_log_variance_clipped', self.posterior_log_variance_clipped)
-            # print('self.model_var_type', self.model_var_type)
 
             model_variance = _extract_into_tensor(model_variance, t, x.shape)
             model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
@@ -1086,7 +1088,7 @@ class GaussianDiffusion(nn.Module):
                 terms["loss"] *= self.num_timesteps
 
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            model_output = self.model(x_t, self._scale_timesteps(t), **model_kwargs)
+            model_output = self.model(x_t, self._scale_timesteps(t), **model_kwargs, cond_mask_prob=self.cond_mask_prob)
 
             if self.model_var_type in [
                 ModelVarType.LEARNED,
@@ -1186,7 +1188,7 @@ class SpacedDiffusion(GaussianDiffusion):
     """
 
     def __init__(self, **kwargs):
-        diffusion_steps = kwargs["diffusion_steps"]
+        diffusion_steps = kwargs["nsteps"]
         self.use_timesteps = set(space_timesteps(diffusion_steps, [diffusion_steps]))
         self.timestep_map = []
         self.original_num_steps = len(self.betas)

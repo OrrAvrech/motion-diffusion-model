@@ -5,7 +5,6 @@ import pyrallis
 from tqdm import tqdm
 from dataclasses import asdict
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from model.m2mdm import EncoderM2MDM
 from model.diffusion import GaussianDiffusion
 from diffusion.resample import UniformStepsSampler
@@ -45,7 +44,7 @@ def lengths_to_mask(lengths: torch.Tensor, max_len: int) -> torch.Tensor:
 def main(cfg: TrainDiffusionConfig):
     
     wandb.login()
-    run = wandb.init(project="m2mdm-humanml", config=asdict(cfg))
+    run = wandb.init(project="m2mdm", config=asdict(cfg))
 
     save_dir = cfg.save_dir
     transform = RecoverInput(cfg.model.data_rep, cfg.model.njoints)
@@ -56,11 +55,10 @@ def main(cfg: TrainDiffusionConfig):
     max_len = train_ds.max_frames
 
     model = EncoderM2MDM(**asdict(cfg.model))
-    diffusion = GaussianDiffusion(model=model,
-                                  diffusion_steps=cfg.diffusion.nsteps,
-                                  noise_schedule=cfg.diffusion.noise_schedule)
+    diffusion = GaussianDiffusion(model=model, **asdict(cfg.diffusion))
     
     if cfg.model_path is not None:
+        print(f"load pre-trained model from {cfg.model_path}")
         model.load_state_dict(torch.load(cfg.model_path))
     
     device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
@@ -72,7 +70,6 @@ def main(cfg: TrainDiffusionConfig):
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     early_stopper = EarlyStopper(cfg.patience)
-    lr_scheduler = ReduceLROnPlateau(optimizer, "min")
 
     best_val_mse = float("inf")
     for epoch in range(cfg.epochs):
@@ -104,37 +101,37 @@ def main(cfg: TrainDiffusionConfig):
             train_loss += loss.item() * curr_batch_size
 
         train_loss /= len(train_ds)
+        logs = {"train/loss": train_loss}
+        print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss}")
 
-        # Validation Loop
-        model.eval()
-        val_mse, val_mpjpe = 0.0, 0.0
-        for i, val_batch in enumerate(val_loader):
-            gt_motion, pert_motion, seq_len = val_batch
-            curr_batch_size = gt_motion.shape[0]
-            gt_motion = gt_motion.to(device)
-            pert_motion = pert_motion.to(device)
+        if epoch % cfg.log_interval == 0:
+            # Validation Loop
+            model.eval()
+            val_mse, val_mpjpe = 0.0, 0.0
+            for i, val_batch in enumerate(val_loader):
+                gt_motion, pert_motion, seq_len = val_batch
+                curr_batch_size = gt_motion.shape[0]
+                gt_motion = gt_motion.to(device)
+                pert_motion = pert_motion.to(device)
 
-            cond = {"y": {"motion": pert_motion}}
-            with torch.no_grad():
-                sample = diffusion.p_sample_loop(shape=gt_motion.shape,
-                                                 model_kwargs=cond,
-                                                 progress=True)
-                
-            # extract joint positions
-            gt_motion_pos = hml2xyz(gt_motion)
-            pert_motion_pos = hml2xyz(pert_motion)
-            output_motion_pos = hml2xyz(sample)
+                cond = {"y": {"motion": pert_motion}}
+                with torch.no_grad():
+                    sample = diffusion.p_sample_loop(shape=gt_motion.shape,
+                                                    model_kwargs=cond,
+                                                    progress=True)
+                    
+                # extract joint positions
+                gt_motion_pos = hml2xyz(val_ds.denormalize(gt_motion.detach().cpu()))
+                pert_motion_pos = hml2xyz(val_ds.denormalize(pert_motion.detach().cpu()))
+                output_motion_pos = hml2xyz(val_ds.denormalize(sample.detach().cpu()))
 
-            val_mse += F.mse_loss(gt_motion, sample) * curr_batch_size
-            val_mpjpe += compute_mpjpe(gt_motion_pos, output_motion_pos) * curr_batch_size
+                val_mse += F.mse_loss(gt_motion, sample) * curr_batch_size
+                val_mpjpe += compute_mpjpe(gt_motion_pos, output_motion_pos) * curr_batch_size
 
-        val_mse /= len(val_ds)
-        val_mpjpe /= len(val_ds)
-        curr_lr = optimizer.param_groups[0]['lr']
-        lr_scheduler.step(val_mse)
-
-        logs = {"train/loss": train_loss, "val/mse": val_mse, "val/mpjpe": val_mpjpe, "learning-rate": curr_lr}
-        print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss}, Validation-MSE: {val_mse}, Validation-MPJPE: {val_mpjpe}")
+            val_mse /= len(val_ds)
+            val_mpjpe /= len(val_ds)
+            logs.update({"val/mse": val_mse, "val/mpjpe": val_mpjpe})
+            print(f"Validation-MSE: {val_mse}, Validation-MPJPE: {val_mpjpe}")
 
         if val_mse < best_val_mse:
             best_val_mse = val_mse
@@ -142,7 +139,7 @@ def main(cfg: TrainDiffusionConfig):
             torch.save(model.state_dict(), save_path)
             print(f"Saved model {save_path}")
 
-        if epoch % cfg.log_interval == 0:
+        if epoch % int(cfg.log_interval*2) == 0:
             save_dir_viz = save_dir / f"viz_{save_dir.name}"
             print(f"Visualize motions saved in {save_dir_viz}")
             examples = []

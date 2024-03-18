@@ -1,5 +1,7 @@
-from typing import Optional
+import torch
+from typing import Optional, Union
 from data_loaders.humanml.scripts.motion_process import recover_from_ric
+import numpy as np
 
 
 class RecoverInput:
@@ -8,7 +10,7 @@ class RecoverInput:
         self.data_rep = data_rep
         self.njoints = njoints
 
-    def __call__(self, sample):
+    def __call__(self, sample: torch.Tensor) -> torch.Tensor:
         # vec -> [njoints, nfeats, nframes]
         if self.data_rep == "xyz":
             vec = recover_from_ric(sample, self.njoints).permute(1, 2, 0)
@@ -22,7 +24,7 @@ class HML2XYZ:
         self.data_rep = data_rep
         self.njoints = njoints
 
-    def __call__(self, sample):
+    def __call__(self, sample: torch.Tensor) -> torch.Tensor:
         if self.data_rep == "xyz":
             xyz = sample
         else:

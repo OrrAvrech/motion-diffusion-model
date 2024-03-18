@@ -48,6 +48,8 @@ class TrainRegressorConfig:
 class DiffusionConfig:
     nsteps: int
     noise_schedule: str
+    cond_mask_prob: float
+    guidance_weight: float
 
 
 @dataclass
@@ -72,7 +74,7 @@ class TrainDiffusionConfig:
     def __post_init__(self):
         self.save_dir.mkdir(exist_ok=True, parents=True)
         if self.log_interval is None:
-            self.log_interval = self.epochs - 1 # record last epoch only by default
+            self.log_interval = (self.epochs - 1) // 2 # record first, middle, last epochs by default
         if self.patience is None:
             self.patience = self.epochs # no early-stop by default
 
