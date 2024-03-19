@@ -11,7 +11,7 @@ class MotionDatasetConfig:
 
 
 @dataclass
-class EncoderConfig:
+class TransformerConfig:
     njoints: int
     nfeats: int
     latent_dim: int = 256
@@ -27,13 +27,15 @@ class EncoderConfig:
 @dataclass
 class TrainRegressorConfig:
     dataset: MotionDatasetConfig
-    model: EncoderConfig
+    model: TransformerConfig
     batch_size: int
     epochs: int
     lr: float
     weight_decay: float
     geometric_loss_weights: Dict[str, float]
     save_dir: Path
+    patience: Optional[int] = None
+    log_interval: Optional[int] = None
     model_path: Optional[Path] = None
     viz_samples_per_batch: Optional[int] = 0
     device: Optional[Union[List[int], int]] = 0
@@ -42,6 +44,10 @@ class TrainRegressorConfig:
 
     def __post_init__(self):
         self.save_dir.mkdir(exist_ok=True, parents=True)
+        if self.log_interval is None:
+            self.log_interval = (self.epochs - 1) // 2 # record first, middle, last epochs by default
+        if self.patience is None:
+            self.patience = self.epochs # no early-stop by default
 
 
 @dataclass
@@ -55,7 +61,7 @@ class DiffusionConfig:
 @dataclass
 class TrainDiffusionConfig:
     dataset: MotionDatasetConfig
-    model: EncoderConfig
+    model: TransformerConfig
     diffusion: DiffusionConfig
     batch_size: int
     epochs: int
@@ -82,7 +88,7 @@ class TrainDiffusionConfig:
 @dataclass
 class EvalConfig:
     dataset: MotionDatasetConfig
-    model: EncoderConfig
+    model: TransformerConfig
     model_path: Path
     batch_size: int
     viz_samples_per_batch: Optional[int] = 0

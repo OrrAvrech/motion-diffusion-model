@@ -8,6 +8,7 @@ from pathlib import Path
 from dataclasses import asdict
 from torch.utils.data import DataLoader
 from model.regressor import M2MRegressor
+from human_feedback.metrics import compute_mpjpe
 from human_feedback.config import TrainRegressorConfig
 from human_feedback.dataset import MotionPairsSplit
 from human_feedback.motion_utils import RecoverInput, HML2XYZ
@@ -62,7 +63,7 @@ def geomteric_loss(pos_true: torch.Tensor, pos_pred: torch.Tensor, weights: Dict
 def main(cfg: TrainRegressorConfig):
     
     wandb.login()
-    wandb.init(project="m2m-regressor", config=asdict(cfg))
+    run = wandb.init(project="m2m-regressor", config=asdict(cfg))
 
     save_dir = cfg.save_dir
     transform = RecoverInput(cfg.model.data_rep, cfg.model.njoints)
@@ -73,7 +74,9 @@ def main(cfg: TrainRegressorConfig):
 
     model = M2MRegressor(**asdict(cfg.model))
     if cfg.model_path is not None:
+        print(f"load pre-trained model from {cfg.model_path}")
         model.load_state_dict(torch.load(cfg.model_path))
+
     device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.rot2xyz.smpl_model.eval()
@@ -89,41 +92,45 @@ def main(cfg: TrainRegressorConfig):
 
         for batch in tqdm(train_loader):
             gt_motion, pert_motion, _ = batch
+            curr_batch_size = gt_motion.shape[0]
             gt_motion = gt_motion.to(device)
             pert_motion = pert_motion.to(device)
             optimizer.zero_grad()
         
             output_motion = model(pert_motion)
-
-            # forward kinematics for loss
-            gt_pos = hml2xyz(gt_motion)
-            output_pos = hml2xyz(output_motion)
-            gloss = geomteric_loss(gt_pos, output_pos, weights=cfg.geometric_loss_weights)
-            loss = F.mse_loss(output_motion, gt_motion) + gloss
+            loss = F.mse_loss(output_motion, gt_motion)
             
             loss.backward()
             optimizer.step()
 
-            train_loss += loss.item() * gt_motion.size(0)
+            train_loss += loss.item() * curr_batch_size
         train_loss /= len(train_ds)
 
         # Validation Loop
         model.eval()
-        val_loss = 0.0
+        val_loss, val_mpjpe = 0.0, 0.0
         for i, val_batch in enumerate(val_loader):
             gt_motion, pert_motion, seq_len = val_batch
+            curr_batch_size = gt_motion.shape[0]
             gt_motion = gt_motion.to(device)
             pert_motion = pert_motion.to(device)
         
             with torch.no_grad():
                 output_motion = model(pert_motion)
-                batch_val_gloss = geomteric_loss(gt_pos, output_pos, weights=cfg.geometric_loss_weights)
-                batch_val_loss = F.mse_loss(output_motion, gt_motion) + batch_val_gloss
-            val_loss += batch_val_loss
-                
-        val_loss /= len(val_ds)
+                batch_val_loss = F.mse_loss(output_motion, gt_motion)
 
-        wandb.log({"loss": train_loss, "val_loss": val_loss})
+            # extract joint positions
+            gt_motion_pos = hml2xyz(val_ds.denormalize(gt_motion.detach().cpu()))
+            pert_motion_pos = hml2xyz(val_ds.denormalize(pert_motion.detach().cpu()))
+            output_motion_pos = hml2xyz(val_ds.denormalize(output_motion.detach().cpu()))
+
+            val_loss += batch_val_loss.item() * curr_batch_size
+            val_mpjpe += compute_mpjpe(gt_motion_pos, output_motion_pos) * curr_batch_size
+        
+        val_loss /= len(val_ds)
+        val_mpjpe /= len(val_ds)
+
+        logs = {"train/loss": train_loss, "val/loss": val_loss, "val/mpjpe": val_mpjpe}
         print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss}, Validation-Loss: {val_loss}")
         
         if val_loss < best_val_loss:
@@ -131,12 +138,12 @@ def main(cfg: TrainRegressorConfig):
             save_path = save_dir / f"{cfg.save_dir.name}.pt"
             torch.save(model.state_dict(), save_path)
             print(f"Saved model {save_path}")
-        
-        if early_stopper.stop(val_loss):
+
+        if epoch % cfg.log_interval == 0:
             # visualize motions
-            gt_motion_pos = hml2xyz(gt_motion)
-            pert_motion_pos = hml2xyz(pert_motion)
-            output_motion_pos = hml2xyz(output_motion)
+            save_dir_viz = save_dir / f"viz_{save_dir.name}"
+            print(f"Visualize motions saved in {save_dir_viz}")
+            examples = []
             for j in range(len(gt_motion)):
                 if j+1 <= cfg.viz_samples_per_batch:
                     idx = f"epoch{epoch}_batch{i}_sample{j}"
@@ -146,7 +153,12 @@ def main(cfg: TrainRegressorConfig):
                                         output_motion_pos[j, :sample_seq_len, :, :], 
                                         save_dir=save_dir, 
                                         idx=idx)
-                    wandb.log({"video": wandb.Video(str(vid_path))})
+                    examples.append(wandb.Video(str(vid_path)))
+            logs.update({"videos": examples})
+        run.log(logs)
+        
+        if early_stopper.stop(val_loss):
+            print(f"Early stop, no improvement for {early_stopper.patience} epochs")
             break
 
 
