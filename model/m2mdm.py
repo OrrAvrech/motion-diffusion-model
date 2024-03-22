@@ -1,22 +1,24 @@
 import torch
-import torch.nn as nn
+import importlib
 from torch import Tensor
-from typing import Dict
+from typing import Dict, Type
 from abc import ABC, abstractmethod
 from model.mdm import InputProcess, CondProjection, OutputProcess, PositionalEncoding, TimestepEmbedder
 from model.rotation2xyz import Rot2xyz
+import torch.nn as nn
 
 
 class BaseM2MDM(nn.Module, ABC):
-    def __init__(self, njoints, nfeats, latent_dim=256, ff_size=1024, num_layers=8, 
+    def __init__(self, njoints, nfeats, arch, latent_dim=256, ff_size=1024, num_layers=8, 
                  num_heads=4, dropout=0.1, activation="gelu", data_rep='rot6d',
-                 cond_dim=263, arch='trans_enc', emb_trans_dec=False):
+                 cond_dim=263, seq_len=None):
         super().__init__()
 
         # data params
         self.njoints = njoints
         self.nfeats = nfeats
         self.data_rep = data_rep
+        self.seq_len = seq_len
 
         # input dimensions
         self.cond_dim = cond_dim
@@ -34,6 +36,7 @@ class BaseM2MDM(nn.Module, ABC):
 
         # arch name
         self.arch = arch
+        print(f"{arch} init")
 
         self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
         self.input_process = InputProcess(self.data_rep, self.input_feats, self.latent_dim)
@@ -48,7 +51,6 @@ class BaseM2MDM(nn.Module, ABC):
 
         self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
         self.embed_motion = nn.Linear(self.latent_dim, self.latent_dim)
-        self.emb_trans_dec = emb_trans_dec
 
         self.output_process = OutputProcess(self.data_rep, self.input_feats, self.latent_dim, self.njoints,
                                             self.nfeats)
@@ -79,12 +81,11 @@ class BaseM2MDM(nn.Module, ABC):
 
 
 class EncoderM2MDM(BaseM2MDM):
-    def __init__(self, njoints, nfeats, latent_dim=256, ff_size=1024, num_layers=8, 
-                 num_heads=4, dropout=0.1, activation="gelu", data_rep='rot6d', 
-                 cond_dim=263, arch='trans_enc', emb_trans_dec=False):
-        super().__init__(njoints, nfeats, latent_dim, ff_size, num_layers, 
-                         num_heads, dropout, activation, data_rep, 
-                         cond_dim, arch, emb_trans_dec)
+    def __init__(self, njoints, nfeats, arch, latent_dim=256, ff_size=1024, 
+                 num_layers=8, num_heads=4, dropout=0.1, activation="gelu", 
+                 data_rep='rot6d', cond_dim=263, seq_len=None):
+        super().__init__(njoints, nfeats, arch, latent_dim, ff_size, num_layers, 
+                         num_heads, dropout, activation, data_rep, cond_dim, seq_len)
         self.seqTransEncoder = nn.TransformerEncoder(self.seqTransEncoderLayer,
                                                      num_layers=self.num_layers)
         
@@ -120,13 +121,11 @@ class EncoderM2MDM(BaseM2MDM):
 
 
 class NullCondEncoderM2MDM(BaseM2MDM):
-    def __init__(self, njoints, nfeats, seq_len, latent_dim=256, ff_size=1024, num_layers=8, 
-                 num_heads=4, dropout=0.1, activation="gelu", data_rep='rot6d', 
-                 cond_dim=263, arch='trans_enc', emb_trans_dec=False):
-        super().__init__(njoints, nfeats, latent_dim, ff_size, num_layers, 
-                         num_heads, dropout, activation, data_rep, 
-                         cond_dim, arch, emb_trans_dec)
-        self.seq_len = seq_len
+    def __init__(self, njoints, nfeats, arch, latent_dim=256, ff_size=1024, 
+                 num_layers=8, num_heads=4, dropout=0.1, activation="gelu", 
+                 data_rep='rot6d', cond_dim=263, seq_len=None):
+        super().__init__(njoints, nfeats, arch, latent_dim, ff_size, num_layers, 
+                         num_heads, dropout, activation, data_rep, cond_dim, seq_len)
         self.null_cond_embed = nn.Parameter(torch.randn(self.seq_len, 1, self.latent_dim))
         self.seqTransEncoder = nn.TransformerEncoder(self.seqTransEncoderLayer,
                                                      num_layers=self.num_layers)
@@ -181,12 +180,11 @@ class NullCondEncoderM2MDM(BaseM2MDM):
 
         
 class DecoderM2MDM(BaseM2MDM):
-    def __init__(self, njoints, nfeats, latent_dim=256, ff_size=1024, num_layers=8, 
-                 num_heads=4, dropout=0.1, activation="gelu", data_rep='rot6d', 
-                 cond_dim=263, arch='trans_enc', emb_trans_dec=False):
-        super().__init__(njoints, nfeats, latent_dim, ff_size, num_layers, 
-                         num_heads, dropout, activation, data_rep, 
-                         cond_dim, arch, emb_trans_dec)
+    def __init__(self, njoints, nfeats, arch, latent_dim=256, ff_size=1024, 
+                 num_layers=8, num_heads=4, dropout=0.1, activation="gelu", 
+                 data_rep='rot6d', cond_dim=263, seq_len=None):
+        super().__init__(njoints, nfeats, arch, latent_dim, ff_size, num_layers, 
+                         num_heads, dropout, activation, data_rep, cond_dim, seq_len)
         seqTransDecoderLayer = nn.TransformerDecoderLayer(d_model=self.latent_dim,
                                                           nhead=self.num_heads,
                                                           dim_feedforward=self.ff_size,
@@ -201,7 +199,7 @@ class DecoderM2MDM(BaseM2MDM):
         timesteps: [batch_size] (int)
         """
         # timestemp MLP
-        emb = self.embed_timestep(timesteps)  # [1, bs, d]
+        t_tokens = self.embed_timestep(timesteps)  # [1, bs, d]
 
         # encode cond
         cond_embed = y["motion"]
@@ -211,22 +209,25 @@ class DecoderM2MDM(BaseM2MDM):
 
         # mask and project cond
         cond_mask = self.mask_cond(cond_tokens, cond_mask_prob)
+
+        # cond as input token
         cond_mask_pooled = cond_mask.mean(dim=0).unsqueeze(0)
-        emb += self.embed_motion(cond_mask_pooled)
+        emb = self.embed_motion(cond_mask_pooled) + t_tokens
+        # cross-attention cond
+        xattn_cond = torch.cat((self.embed_motion(cond_mask), t_tokens), axis=0)
 
         x = self.input_process(x)
 
-        if self.emb_trans_dec:
-            xseq = torch.cat((emb, x), axis=0)
-        else:
-            xseq = x
+        xseq = torch.cat((emb, x), axis=0)
         xseq = self.sequence_pos_encoder(xseq)  # [seqlen+1, bs, d]
-        if self.emb_trans_dec:
-            output = self.seqTransDecoder(tgt=xseq, memory=emb)[1:] # [seqlen, bs, d] # FIXME - maybe add a causal mask
-        else:
-            output = self.seqTransDecoder(tgt=xseq, memory=emb)
+        # decoder-only
+        output = self.seqTransDecoder(tgt=xseq, memory=xattn_cond)[1:] # [seqlen, bs, d]
 
         output = self.output_process(output)  # [bs, njoints, nfeats, nframes]
         return output
 
-        
+
+def select_model(model_name: str) -> Type[BaseM2MDM]:
+    module = importlib.import_module("model.m2mdm")
+    _class = getattr(module, model_name)
+    return _class

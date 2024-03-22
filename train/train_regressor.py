@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from model.regressor import M2MRegressor
 from human_feedback.metrics import compute_mpjpe
 from human_feedback.config import TrainRegressorConfig
-from human_feedback.dataset import MotionPairsSplit
+from human_feedback.dataset import MotionPairsSplit, IdentityPairsSplit
 from human_feedback.motion_utils import RecoverInput, HML2XYZ
 from human_feedback.viz import save_viz
 import torch.nn.functional as F
@@ -63,12 +63,15 @@ def geomteric_loss(pos_true: torch.Tensor, pos_pred: torch.Tensor, weights: Dict
 def main(cfg: TrainRegressorConfig):
     
     wandb.login()
-    run = wandb.init(project="m2m-regressor", config=asdict(cfg))
+    run = wandb.init(project="m2m-regressor", config=asdict(cfg), tags=["identity"])
 
     save_dir = cfg.save_dir
     transform = RecoverInput(cfg.model.data_rep, cfg.model.njoints)
-    train_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
-    val_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
+    # train_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
+    # val_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
+
+    train_ds = IdentityPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
+    val_ds = IdentityPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
 
@@ -83,9 +86,9 @@ def main(cfg: TrainRegressorConfig):
     hml2xyz = HML2XYZ(cfg.model.data_rep)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
-    early_stopper = EarlyStopper()
+    early_stopper = EarlyStopper(cfg.patience)
 
-    best_val_loss = float("inf")
+    bast_val_metric = float("inf")
     for epoch in range(cfg.epochs):
         model.train()
         train_loss = 0.0
@@ -133,8 +136,8 @@ def main(cfg: TrainRegressorConfig):
         logs = {"train/loss": train_loss, "val/loss": val_loss, "val/mpjpe": val_mpjpe}
         print(f"Epoch [{epoch+1}/{cfg.epochs}], Train-Loss: {train_loss}, Validation-Loss: {val_loss}")
         
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if val_mpjpe < bast_val_metric:
+            bast_val_metric = val_mpjpe
             save_path = save_dir / f"{cfg.save_dir.name}.pt"
             torch.save(model.state_dict(), save_path)
             print(f"Saved model {save_path}")
@@ -157,7 +160,7 @@ def main(cfg: TrainRegressorConfig):
             logs.update({"videos": examples})
         run.log(logs)
         
-        if early_stopper.stop(val_loss):
+        if early_stopper.stop(val_mpjpe):
             print(f"Early stop, no improvement for {early_stopper.patience} epochs")
             break
 

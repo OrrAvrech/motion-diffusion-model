@@ -149,7 +149,7 @@ def main():
         gt_frames_per_sample = {}
         model_kwargs['y']['inpainted_motion'] = input_motions
 
-        all_motions, all_text, all_edit_modes = [[] for _ in range(3)]
+        all_motions, all_motion_vecs, all_text, all_edit_modes = [[] for _ in range(4)]
         sample_timeline_path = Path(args.timeline_path) / f"{filename}.json"
         with open(sample_timeline_path, "r") as fp:
             timeline = json.load(fp)
@@ -196,8 +196,8 @@ def main():
             # Recover XYZ *positions* from HumanML3D vector representation
             if model.data_rep == 'hml_vec':
                 n_joints = 22 if sample.shape[1] == 263 else 21
-                sample = data.dataset.t2m_dataset.inv_transform(sample.cpu().permute(0, 2, 3, 1)).float()
-                sample = recover_from_ric(sample, n_joints)
+                sample_vec = data.dataset.t2m_dataset.inv_transform(sample.cpu().permute(0, 2, 3, 1)).float()
+                sample = recover_from_ric(sample_vec, n_joints)
                 sample = sample.view(-1, *sample.shape[2:]).permute(0, 2, 3, 1)
 
                 sample = sample_lerp(sample, start, end)
@@ -205,6 +205,7 @@ def main():
             all_text += model_kwargs['y']['text']
             all_edit_modes += edit_modes
             all_motions.append(sample.cpu().numpy())
+            all_motion_vecs.append(sample_vec.cpu().numpy())
 
         print(f"created {len(all_motions) * args.batch_size} samples")
 
@@ -230,7 +231,10 @@ def main():
         
         # Save generated motions
         sample_savedir = npy_dir / filename
-        sample_savedir.mkdir(exist_ok=True, parents=True)
+        sample_savedir_pos = sample_savedir / "joint_pos"
+        sample_savedir_vecs = sample_savedir / "joint_vecs"
+        sample_savedir_pos.mkdir(exist_ok=True, parents=True)
+        sample_savedir_vecs.mkdir(exist_ok=True)
 
         for rep_i in range(num_repetitions):
             caption = all_text[rep_i]
@@ -240,6 +244,7 @@ def main():
             else:
                 caption = 'Edit [{}]: {}'.format(edit_mode, caption)
             motion = all_motions[rep_i].squeeze().transpose(2, 0, 1)[:length]
+            motion_vec = all_motion_vecs[rep_i]
             save_file = f"sample{filename}_rep{rep_i}.mp4"
             animation_save_path = str(out_path / save_file)
             rep_files.append(animation_save_path)
@@ -249,7 +254,8 @@ def main():
             # Credit for visualization: https://github.com/EricGuo5513/text-to-motion
 
             # save each rep
-            np.save(sample_savedir / f"{filename}_{rep_i}.npy", motion)
+            np.save(sample_savedir_pos / f"{filename}_{rep_i}.npy", motion)
+            np.save(sample_savedir_vecs / f"{filename}_{rep_i}.npy", motion_vec)
 
         all_rep_save_file = out_path / f"{filename}.mp4"
         ffmpeg_rep_files = [f' -i {f} ' for f in rep_files]

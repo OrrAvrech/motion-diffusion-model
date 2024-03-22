@@ -5,11 +5,11 @@ import pyrallis
 from tqdm import tqdm
 from dataclasses import asdict
 from torch.utils.data import DataLoader
-from model.m2mdm import EncoderM2MDM
+from model.m2mdm import select_model
 from model.diffusion import GaussianDiffusion
 from diffusion.resample import UniformStepsSampler
 from human_feedback.config import TrainDiffusionConfig
-from human_feedback.dataset import MotionPairsSplit
+from human_feedback.dataset import MotionPairsSplit, IdentityPairsSplit
 from human_feedback.motion_utils import RecoverInput, HML2XYZ
 from human_feedback.metrics import compute_mpjpe, compute_pa_mpjpe
 from human_feedback.viz import save_viz
@@ -44,24 +44,29 @@ def lengths_to_mask(lengths: torch.Tensor, max_len: int) -> torch.Tensor:
 def main(cfg: TrainDiffusionConfig):
     
     wandb.login()
+    # run = wandb.init(project="m2mdm", config=asdict(cfg), tags=["identity"])
     run = wandb.init(project="m2mdm", config=asdict(cfg))
 
     save_dir = cfg.save_dir
     transform = RecoverInput(cfg.model.data_rep, cfg.model.njoints)
     train_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
     val_ds = MotionPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
+
+    # train_ds = IdentityPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
+    # val_ds = IdentityPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
+
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
     max_len = train_ds.max_frames
 
-    model = EncoderM2MDM(**asdict(cfg.model))
+    model = select_model(cfg.model.arch)(**asdict(cfg.model), seq_len=cfg.dataset.max_frames)
     diffusion = GaussianDiffusion(model=model, **asdict(cfg.diffusion))
     
+    device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
     if cfg.model_path is not None:
         print(f"load pre-trained model from {cfg.model_path}")
-        model.load_state_dict(torch.load(cfg.model_path))
+        model.load_state_dict(torch.load(cfg.model_path, map_location=device))
     
-    device = torch.device(f"cuda:{cfg.device}" if torch.cuda.is_available() else "cpu")
     model.to(device)
     diffusion.to(device)
 
@@ -71,7 +76,7 @@ def main(cfg: TrainDiffusionConfig):
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     early_stopper = EarlyStopper(cfg.patience)
 
-    best_val_mse = float("inf")
+    best_val_metric = float("inf")
     for epoch in range(cfg.epochs):
         model.train()
         train_loss = 0.0
@@ -133,11 +138,11 @@ def main(cfg: TrainDiffusionConfig):
             logs.update({"val/mse": val_mse, "val/mpjpe": val_mpjpe})
             print(f"Validation-MSE: {val_mse}, Validation-MPJPE: {val_mpjpe}")
 
-        if val_mse < best_val_mse:
-            best_val_mse = val_mse
-            save_path = save_dir / f"{cfg.save_dir.name}.pt"
-            torch.save(model.state_dict(), save_path)
-            print(f"Saved model {save_path}")
+            if val_mpjpe < best_val_metric:
+                best_val_metric = val_mpjpe
+                save_path = save_dir / f"{cfg.save_dir.name}.pt"
+                torch.save(model.state_dict(), save_path)
+                print(f"Saved model {save_path}")
 
         if epoch % int(cfg.log_interval*2) == 0:
             save_dir_viz = save_dir / f"viz_{save_dir.name}"
@@ -156,7 +161,7 @@ def main(cfg: TrainDiffusionConfig):
             logs.update({"videos": examples})
         run.log(logs)
         
-        if early_stopper.stop(val_mse):
+        if early_stopper.stop(val_mpjpe):
             print(f"Early stop, no improvement for {early_stopper.patience} epochs")
             break
 
