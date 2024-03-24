@@ -18,35 +18,50 @@ class MotionPairs(data.Dataset):
         self.motion_files = list(self.input_dir.rglob("*.npy"))
 
         self.mean = 0.0
-        mean_npy_path = input_dir.parent / "Mean.npy"
+        mean_npy_path = input_dir.parent / "Mean_all.npy"
         if mean_npy_path.exists():
             print(f"load mean from {mean_npy_path}")
             self.mean = np.load(mean_npy_path).astype(np.float32)
+        
+        mean_pert_npy_path = input_dir.parent / "Mean_pert_all.npy"
+        if mean_pert_npy_path.exists():
+            print(f"load pert mean from {mean_pert_npy_path}")
+            self.pert_mean = np.load(mean_pert_npy_path).astype(np.float32)
+        else:
+            self.pert_mean = self.mean
 
         self.std = 1.0
-        std_npy_path = input_dir.parent / "Std.npy"
+        std_npy_path = input_dir.parent / "Std_all.npy"
         if std_npy_path.exists():
             print(f"load std from {std_npy_path}")
             self.std = np.load(std_npy_path).astype(np.float32)
 
-    def process_motion(self, motion: torch.Tensor, start_idx: Optional[int] = None) -> Tuple[torch.Tensor]:
-        seq_len = motion.shape[0]
+        std_pert_npy_path = input_dir.parent / "Std_pert_all.npy"
+        if std_pert_npy_path.exists():
+            print(f"load pert std from {std_pert_npy_path}")
+            self.pert_std = np.load(std_pert_npy_path).astype(np.float32)
+        else:
+            self.pert_std = self.std
+
+    def process_motion(self, motion: torch.Tensor, seq_len: int, 
+                       mean: torch.Tensor, std: torch.Tensor,
+                       start_idx: Optional[int] = None) -> Tuple[torch.Tensor]:
         if seq_len < self.max_frames:
             # zero padding
             zeros = torch.zeros((self.max_frames, *motion.shape[1:]))
             zeros[:seq_len, ...] = motion
             motion_proc = zeros
         else:
-            seq_len = self.max_frames
             if self.sample_window is True:
                 # randomly sample a window of max-frames size
-                start_idx if start_idx is not None else random.randint(0, seq_len - self.max_frames)
+                start_idx = start_idx if start_idx is not None else random.randint(0, seq_len - self.max_frames - 10)
                 motion_proc = motion[start_idx:start_idx + self.max_frames, ...]
             else:
                 motion_proc = motion[:self.max_frames, ...]
+            seq_len = motion_proc.shape[0]
 
         # Z Normalization
-        motion_proc = (motion_proc - self.mean) / self.std
+        motion_proc = (motion_proc - mean) / std
         return motion_proc, seq_len, start_idx
 
     def denormalize(self, motion: torch.Tensor):
@@ -65,9 +80,17 @@ class MotionPairs(data.Dataset):
         else:
             pert_filepath = pert_motions_files[0]
         pert_motion = torch.Tensor(np.load(pert_filepath))
+        min_seq_len = min(gt_motion.shape[0], pert_motion.shape[0])
 
-        gt_motion, seq_len, start_idx = self.process_motion(gt_motion)
-        pert_motion, _, _ = self.process_motion(pert_motion, start_idx=start_idx)
+        gt_motion, seq_len, start_idx = self.process_motion(gt_motion,
+                                                            min_seq_len, 
+                                                            mean=self.mean, 
+                                                            std=self.std)
+        pert_motion, _, _ = self.process_motion(pert_motion, 
+                                                min_seq_len, 
+                                                mean=self.pert_mean,
+                                                std=self.pert_std,
+                                                start_idx=start_idx)
 
         if self.transform is not None:
             gt_motion = self.transform(gt_motion)

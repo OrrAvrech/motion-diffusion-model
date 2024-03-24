@@ -1,16 +1,15 @@
 import numpy as np
-import os
-from os.path import join as pjoin
+from pathlib import Path
 
 
-def mean_variance(data_dir, save_dir, joints_num):
-    file_list = os.listdir(data_dir)
+def mean_variance(data_dir: Path, save_dir: Path, joints_num: int):
+    file_list = list(data_dir.rglob("*.npy"))
     data_list = []
 
-    for file in file_list:
-        data = np.load(pjoin(data_dir, file))
+    for filepath in file_list:
+        data = np.load(filepath)
         if np.isnan(data).any():
-            print(file)
+            print(filepath.name)
             continue
         data_list.append(data)
 
@@ -28,14 +27,14 @@ def mean_variance(data_dir, save_dir, joints_num):
 
     assert 8 + (joints_num - 1) * 9 + joints_num * 3 == Std.shape[-1]
 
-    np.save(pjoin(save_dir, 'Mean.npy'), Mean)
-    np.save(pjoin(save_dir, 'Std.npy'), Std)
+    np.save(save_dir / 'Mean.npy', Mean)
+    np.save(save_dir / 'Std.npy', Std)
 
     return Mean, Std
 
 
 if __name__ == "__main__":
-    data_dir = "/proj/vondrick2/orr/motion-diffusion-model/dataset/MOYO/human_feedback/new_joint_vecs_split"
-    save_dir = "/proj/vondrick2/orr/motion-diffusion-model/dataset/MOYO/human_feedback/"
+    data_dir = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MOYO/human_feedback/vecs_12_all")
+    save_dir = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MOYO/human_feedback/")
     joints_num = 22
     mean_variance(data_dir, save_dir, joints_num)
