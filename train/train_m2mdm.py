@@ -55,7 +55,7 @@ def main(cfg: TrainDiffusionConfig):
     # train_ds = IdentityPairsSplit(**asdict(cfg.dataset), split=cfg.train_split_file, sample_window=True, transform=transform)
     # val_ds = IdentityPairsSplit(**asdict(cfg.dataset), split=cfg.val_split_file, random_choice=False, transform=transform)
 
-    train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
+    train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_data_workers)
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size)
     max_len = train_ds.max_frames
 
@@ -112,7 +112,7 @@ def main(cfg: TrainDiffusionConfig):
         if epoch % cfg.log_interval == 0:
             # Validation Loop
             model.eval()
-            val_mse, val_mpjpe = 0.0, 0.0
+            val_mse, val_mpjpe, val_mpjpe_align = [0.0 for _ in range(3)]
             for i, val_batch in enumerate(val_loader):
                 gt_motion, pert_motion, seq_len = val_batch
                 curr_batch_size = gt_motion.shape[0]
@@ -131,12 +131,14 @@ def main(cfg: TrainDiffusionConfig):
                 output_motion_pos = hml2xyz(val_ds.denormalize(sample.detach().cpu()))
 
                 val_mse += F.mse_loss(gt_motion, sample) * curr_batch_size
-                val_mpjpe += compute_mpjpe(gt_motion_pos, output_motion_pos) * curr_batch_size
+                val_mpjpe += compute_mpjpe(gt_motion_pos, output_motion_pos, root_align=False) * curr_batch_size
+                val_mpjpe_align += compute_mpjpe(gt_motion_pos, output_motion_pos, root_align=True) * curr_batch_size
 
             val_mse /= len(val_ds)
             val_mpjpe /= len(val_ds)
-            logs.update({"val/mse": val_mse, "val/mpjpe": val_mpjpe})
-            print(f"Validation-MSE: {val_mse}, Validation-MPJPE: {val_mpjpe}")
+            val_mpjpe_align /= len(val_ds)
+            logs.update({"val/mse": val_mse, "val/mpjpe": val_mpjpe, "val/mpjpe-align": val_mpjpe_align})
+            print(f"Validation-MSE: {val_mse}, Validation-MPJPE: {val_mpjpe}, Validation-MPJPE-Aligned: {val_mpjpe_align}")
 
             if val_mpjpe < best_val_metric:
                 best_val_metric = val_mpjpe

@@ -69,6 +69,7 @@ class TrainDiffusionConfig:
     weight_decay: float
     geometric_loss_weights: Dict[str, float]
     save_dir: Path
+    num_data_workers: Optional[int] = 0
     patience: Optional[int] = None
     log_interval: Optional[int] = None
     model_path: Optional[Path] = None

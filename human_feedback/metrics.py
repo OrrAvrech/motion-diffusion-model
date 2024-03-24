@@ -1,9 +1,17 @@
 import torch
 from torch import Tensor
-from scipy.spatial import procrustes
 
 
-def compute_mpjpe(gt_joints: Tensor, pred_joints: Tensor) -> Tensor:
+def align_by_root(x: Tensor) -> Tensor:
+    root = x[:, 0, :].unsqueeze(1)
+    return x - root
+
+
+def compute_mpjpe(gt_joints: Tensor, pred_joints: Tensor, root_align: bool = True) -> Tensor:
+    if root_align is True:
+        gt_joints = align_by_root(gt_joints)
+        pred_joints = align_by_root(pred_joints)
+        
     joint_errors = torch.norm(gt_joints - pred_joints, dim=-1)
     mpjpe = torch.mean(joint_errors)
     return mpjpe
