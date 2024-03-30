@@ -124,8 +124,12 @@ class IdentityPairsSplit(MotionPairsSplit):
         gt_filepath = self.motion_files[idx]
         gt_motion = torch.Tensor(np.load(gt_filepath))
         pert_motion = torch.Tensor(np.load(gt_filepath))
+        seq_len = gt_motion.shape[0]
 
-        gt_motion, seq_len = self.process_motion(gt_motion)
+        gt_motion, seq_len = self.process_motion(motion=gt_motion,
+                                                 seq_len=seq_len,
+                                                 mean=self.mean,
+                                                 std=self.std)
         pert_motion, _ = self.process_motion(pert_motion)
 
         if self.transform is not None:
