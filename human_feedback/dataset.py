@@ -18,30 +18,21 @@ class MotionPairs(data.Dataset):
         self.motion_files = list(self.input_dir.rglob("*.npy"))
 
         self.mean = 0.0
-        mean_npy_path = input_dir.parent / "Mean_all.npy"
+        # Mean_all.npy for both gt and perturbed motions
+        mean_npy_path = input_dir.parent / "Mean.npy"
         if mean_npy_path.exists():
             print(f"load mean from {mean_npy_path}")
             self.mean = np.load(mean_npy_path).astype(np.float32)
-        
-        mean_pert_npy_path = input_dir.parent / "Mean_pert_all.npy"
-        if mean_pert_npy_path.exists():
-            print(f"load pert mean from {mean_pert_npy_path}")
-            self.pert_mean = np.load(mean_pert_npy_path).astype(np.float32)
-        else:
-            self.pert_mean = self.mean
+        self.pert_mean = self.mean
 
         self.std = 1.0
-        std_npy_path = input_dir.parent / "Std_all.npy"
+        # Std_all.npy for both gt and perturbed motions
+        std_npy_path = input_dir.parent / "Std.npy"
         if std_npy_path.exists():
             print(f"load std from {std_npy_path}")
             self.std = np.load(std_npy_path).astype(np.float32)
+        self.pert_std = self.std
 
-        std_pert_npy_path = input_dir.parent / "Std_pert_all.npy"
-        if std_pert_npy_path.exists():
-            print(f"load pert std from {std_pert_npy_path}")
-            self.pert_std = np.load(std_pert_npy_path).astype(np.float32)
-        else:
-            self.pert_std = self.std
 
     def process_motion(self, motion: torch.Tensor, seq_len: int, 
                        mean: torch.Tensor, std: torch.Tensor,
@@ -126,11 +117,15 @@ class IdentityPairsSplit(MotionPairsSplit):
         pert_motion = torch.Tensor(np.load(gt_filepath))
         seq_len = gt_motion.shape[0]
 
-        gt_motion, seq_len = self.process_motion(motion=gt_motion,
+        gt_motion, seq_len, start_idx = self.process_motion(motion=gt_motion,
                                                  seq_len=seq_len,
                                                  mean=self.mean,
                                                  std=self.std)
-        pert_motion, _ = self.process_motion(pert_motion)
+        pert_motion, _, _ = self.process_motion(motion=pert_motion,
+                                                seq_len=seq_len,
+                                                mean=self.mean,
+                                                std=self.std,
+                                                start_idx=start_idx)
 
         if self.transform is not None:
             gt_motion = self.transform(gt_motion)
