@@ -218,7 +218,7 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-class TimestepEmbedder(nn.Module):
+class TimestepMLP(nn.Module):
     def __init__(self, latent_dim, sequence_pos_encoder):
         super().__init__()
         self.latent_dim = latent_dim
