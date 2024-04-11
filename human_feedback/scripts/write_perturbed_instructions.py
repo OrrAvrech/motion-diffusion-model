@@ -14,10 +14,11 @@ def parse_sentence(sentence):
 
 
 def main():
-    subsample_factor = 2
-    fps = 20
-    min_seq_len = 3 # in sec
+    fps = 20 # target fps
+    current_fps = 30
+    subsample_factor = current_fps / fps
     num_frames = int(196*subsample_factor)
+    min_seq_len = 3 # in sec
 
     dataset_dir = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MOYO/new_joint_vecs")
     gpt_dir = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MOYO/human_feedback/gpt")
@@ -29,7 +30,7 @@ def main():
         full_motion = np.load(npy_path)
         for i in range(0, len(full_motion) - num_frames, num_frames):
             curr_motion = full_motion[i: i+num_frames]
-            # MOYO is in 40fps, HumanML3D 20fps
+            # MOYO is in 40fps, HumanML3D 20fps, MotionX 30fps
             curr_motion = curr_motion[::subsample_factor]
             if len(curr_motion) <= int(fps*min_seq_len):
                 # skip short motions
