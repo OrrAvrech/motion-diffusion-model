@@ -35,8 +35,8 @@ def main():
     inst_output_dir = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MotionX/human_feedback/instructions/perturb_t2m")
     inst_output_dir.mkdir(exist_ok=True, parents=True)
 
-    text_dir = dataset_dir / "texts"
-    new_text_dir = dataset_dir / "texts_split"
+    text_dir = dataset_dir / "human_feedback" / "seq_texts"
+    new_text_dir = dataset_dir / "human_feedback" / "seq_texts_split"
     split_filepath = dataset_dir / "vecs_12.txt"
 
     filenames = []
@@ -58,50 +58,50 @@ def main():
             relative_path_npy = npy_path.relative_to(vecs_dir).parent
 
             # write perturbed instructions
-            try:
-                gpt_path = gpt_dir / relative_path_npy /  f"{npy_path.stem}.json"
-                sentences = get_gpt_sentences(gpt_path)
-                sentences = [x for x in sentences if len(x.strip())>0]
-                sentences = [x.split(f"{i+1}. ")[-1] for i, x in enumerate(sentences)]
-                instructions = [parse_sentence(x) for x in sentences]
+            # try:
+            #     gpt_path = gpt_dir / relative_path_npy /  f"{npy_path.stem}.json"
+            #     sentences = get_gpt_sentences(gpt_path)
+            #     sentences = [x for x in sentences if len(x.strip())>0]
+            #     sentences = [x.split(f"{i+1}. ")[-1] for i, x in enumerate(sentences)]
+            #     instructions = [parse_sentence(x) for x in sentences]
 
-                seq_len_sec = len(sub_motion) / fps
-                data = []
-                for text, body_part in instructions:
-                    body_part = find_closest_body_part(body_part_in=body_part)
-                    # choose start, end randomly
-                    pert_motion_len = random.uniform(min_seq_len, seq_len_sec)
-                    start = random.uniform(0, seq_len_sec - pert_motion_len)
-                    end = start + pert_motion_len
-                    data.append({"text": text,
-                                "body_part": body_part,
-                                "start": start,
-                                "end": end})
-            except (ValueError, IndexError):
-                print(f"skip {gpt_path}")
-                skip_count += 1
-                continue
+            #     seq_len_sec = len(sub_motion) / fps
+            #     data = []
+            #     for text, body_part in instructions:
+            #         body_part = find_closest_body_part(body_part_in=body_part)
+            #         # choose start, end randomly
+            #         pert_motion_len = random.uniform(min_seq_len, seq_len_sec)
+            #         start = random.uniform(0, seq_len_sec - pert_motion_len)
+            #         end = start + pert_motion_len
+            #         data.append({"text": text,
+            #                     "body_part": body_part,
+            #                     "start": start,
+            #                     "end": end})
+            # except (ValueError, IndexError):
+            #     print(f"skip {gpt_path}")
+            #     skip_count += 1
+            #     continue
 
             # save split motion
-            save_dir = motion_output_dir / relative_path_npy
-            save_dir.mkdir(exist_ok=True, parents=True)
-            np.save(save_dir / motion_filename, sub_motion)
+            # save_dir = motion_output_dir / relative_path_npy
+            # save_dir.mkdir(exist_ok=True, parents=True)
+            # np.save(save_dir / motion_filename, sub_motion)
             
             # save preturb instructions
-            save_dir = inst_output_dir / relative_path_npy
-            save_dir.mkdir(exist_ok=True, parents=True)
-            pert_instructions_filepath = save_dir / f"{Path(motion_filename).stem}.json"
-            with open(pert_instructions_filepath, "w") as fp:
-                json.dump(data, fp)
+            # save_dir = inst_output_dir / relative_path_npy
+            # save_dir.mkdir(exist_ok=True, parents=True)
+            # pert_instructions_filepath = save_dir / f"{Path(motion_filename).stem}.json"
+            # with open(pert_instructions_filepath, "w") as fp:
+            #     json.dump(data, fp)
             
             filenames.append(str(relative_path_npy / motion_filename))
 
             if copy_text is True:
-                new_text_dir.mkdir(exist_ok=True, parents=True)
                 src_text, dst_text = text_dir / relative_path_npy, new_text_dir / relative_path_npy
+                dst_text.mkdir(exist_ok=True, parents=True)
                 copy(src_text / f"{npy_path.stem}.txt", dst_text / f"{Path(motion_filename).stem}.txt")
     
-    with open(split_filepath, "a") as fp:
+    with open(split_filepath, "w") as fp:
         [fp.write(f"{x}\n") for x in filenames]
 
     print(f"Done! Skipped samples count: {skip_count}")

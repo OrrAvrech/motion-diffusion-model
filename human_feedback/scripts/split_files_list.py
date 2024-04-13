@@ -18,15 +18,16 @@ def split_files(input_file: Path, k: int, output_dir: Path):
         split_files[i % k].append(files[k * num_files_per_split + i])
 
     # Write each part into separate output files
+    print(f"writing {k} files, with approx {num_files_per_split} files each")
     for i, file_list in enumerate(split_files):
         with open(output_dir / f'output_file_{i+1}.txt', 'w') as f:
             f.write('\n'.join(file_list))
 
 
 def main():
-    input_files_list = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MOYO/vecs_12.txt")
-    output_dir = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MOYO/")
-    num_splits = 16
+    input_files_list = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MotionX/vecs_12_remaining.txt")
+    output_dir = Path("/proj/vondrick2/orr/motion-diffusion-model/dataset/MotionX/human_feedback/split_files")
+    num_splits = 48
     split_files(input_files_list, num_splits, output_dir)
 
 

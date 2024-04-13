@@ -1,10 +1,6 @@
 import torch
 from torch import Tensor
-
-
-def align_by_root(x: Tensor) -> Tensor:
-    root = x[:, 0, :].unsqueeze(1)
-    return x - root
+from human_feedback.motion_utils import align_by_root
 
 
 def compute_mpjpe(gt_joints: Tensor, pred_joints: Tensor, root_align: bool = True) -> Tensor:

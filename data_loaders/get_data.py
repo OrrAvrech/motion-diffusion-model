@@ -24,6 +24,9 @@ def get_dataset_class(name):
     elif name == "moyo":
         from data_loaders.humanml.data.dataset import MOYO
         return MOYO
+    elif name == "motionx":
+        from data_loaders.humanml.data.dataset import MotionX
+        return MotionX
     else:
         raise ValueError(f'Unsupported dataset name [{name}]')
 

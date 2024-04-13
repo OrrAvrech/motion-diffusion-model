@@ -228,9 +228,6 @@ class Text2MotionDatasetV2(data.Dataset):
         for name in tqdm(id_list):
             try:
                 motion = np.load(pjoin(opt.motion_dir, name + '.npy'))
-                # TODO: check if breaks anything
-                # qtr_idx = int(len(motion) * 0.25)
-                # motion = motion[qtr_idx:qtr_idx+self.max_motion_length]
                 motion = motion[:self.max_motion_length]
                 if (len(motion)) < min_motion_len or (len(motion) > self.max_motion_length):
                     continue
@@ -767,7 +764,9 @@ class HumanML3D(data.Dataset):
             self.mean_for_eval = np.load(pjoin(opt.meta_dir, f'{opt.dataset_name}_mean.npy'))
             self.std_for_eval = np.load(pjoin(opt.meta_dir, f'{opt.dataset_name}_std.npy'))
 
-        self.split_file = pjoin(opt.data_root, f'{split}.txt')
+        # TODO
+        # self.split_file = pjoin(opt.data_root, f'{split}.txt')
+        self.split_file = pjoin(opt.data_root, "human_feedback", "split_files", f'{split}.txt')
         if mode == 'text_only':
             self.t2m_dataset = TextOnlyDataset(self.opt, self.mean, self.std, self.split_file)
         else:
@@ -796,23 +795,6 @@ class KIT(HumanML3D):
 #     def __init__(self, mode, datapath='./dataset/humanfeedback_opt.txt', split="all", **kwargs):
 #         super().__init__(mode, datapath, split, **kwargs)
 
-
-class HumanFeedbackNew(data.Dataset):
-    def __init__(self, max_frames: int, dataset_dir: Path = Path("./dataset/HumanFeedback")):
-        self.dataset_dir = dataset_dir
-        self.motion_dir = dataset_dir / "new_joint_vecs"
-        self.motions_list = list(self.motion_dir.rglob("*.npy"))
-        self.max_frames = max_frames
-
-    def __getitem__(self, idx) -> np.array:
-        filepath = self.motions_list[idx]
-        joints_seq = torch.Tensor(np.load(filepath))[:self.max_frames, :]
-        return joints_seq
-
-    def __len__(self):
-        return len(self.motions_list)
-
-
 class HumanML3DFname(HumanML3D):
     def __getitem__(self, item):
         return (*super().__getitem__(item), self.t2m_dataset.name_list[item])
@@ -820,6 +802,11 @@ class HumanML3DFname(HumanML3D):
 
 class MOYO(HumanML3D):
     def __init__(self, mode, datapath='./dataset/moyo_opt.txt', split="all", **kwargs):
+        super().__init__(mode, datapath, split, **kwargs)
+
+
+class MotionX(HumanML3D):
+    def __init__(self, mode, datapath='./dataset/motionx_opt.txt', split="all", **kwargs):
         super().__init__(mode, datapath, split, **kwargs)
 
 

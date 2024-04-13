@@ -1,8 +1,10 @@
 from utils.fixseed import fixseed
 import os
 import json
+import random
 import numpy as np
 import torch
+from collections import OrderedDict
 from utils.parser_util import edit_args
 from utils.model_util import create_model_and_diffusion, load_model_wo_clip
 from utils import dist_util
@@ -12,6 +14,9 @@ from data_loaders.humanml.scripts.motion_process import recover_from_ric
 from data_loaders import humanml_utils
 import data_loaders.humanml.utils.paramUtil as paramUtil
 from data_loaders.humanml.utils.plot_script import plot_3d_motion
+from human_feedback.motion_process import extract_features
+from human_feedback.viz import save_vid_list, plot_3d_motion_pairs
+from human_feedback.motion_utils import align_by_root_np
 import shutil
 from pathlib import Path
 import pandas as pd
@@ -95,16 +100,12 @@ def main():
     dist_util.setup_dist(args.device)
     run_time = datetime.now().strftime("%Y%m%d_%H%M")
 
-    viz_dir = Path(args.output_dir) / "viz" / "vecs_12"
+    viz_dir = Path(args.output_dir) / "human_feedback" / "viz" / "vecs_12"
     viz_dir.mkdir(exist_ok=True, parents=True)
     npy_dir = Path(args.output_dir) / "human_feedback" / "vecs_12"
     npy_dir.mkdir(exist_ok=True, parents=True)
-
-    # if out_path == '':
-    #     out_path = os.path.join(os.path.dirname(args.model_path),
-    #                             'edit_{}_{}_{}_seed{}_{}'.format(name, niter, args.edit_mode, args.seed, run_time))
-    #     if args.text_condition != '':
-    #         out_path += '_' + args.text_condition.replace(' ', '_').replace('.', '')
+    npy_dir_pos = npy_dir / "joint_pos"
+    npy_dir_vecs = npy_dir / "hml_vec"
     out_path = viz_dir
 
     print('Loading dataset...')
@@ -146,13 +147,15 @@ def main():
 
         # add inpainting mask according to args
         assert max_frames == input_motions.shape[-1]
-        gt_frames_per_sample = {}
         model_kwargs['y']['inpainted_motion'] = input_motions
 
         all_motions, all_motion_vecs, all_text, all_edit_modes = [[] for _ in range(4)]
         sample_timeline_path = Path(args.timeline_path) / f"{filename}.json"
         with open(sample_timeline_path, "r") as fp:
-            timeline = json.load(fp)
+            # reading the timeline in the same order
+            timeline = json.load(fp, object_pairs_hook=OrderedDict)
+
+        length = int(model_kwargs['y']['lengths'].cpu().numpy())
 
         num_repetitions = len(timeline)
         for i, rep in enumerate(timeline):
@@ -200,17 +203,16 @@ def main():
                 sample = recover_from_ric(sample_vec, n_joints)
                 sample = sample.view(-1, *sample.shape[2:]).permute(0, 2, 3, 1)
 
-                sample = sample_lerp(sample, start, end)
+                sample = sample_lerp(sample, start, end) # joint positions
+                sample_np = sample.cpu().numpy().squeeze().transpose(2, 0, 1)[:length]
+                hml_vec = extract_features(positions=sample_np) # hml vec
 
             all_text += model_kwargs['y']['text']
             all_edit_modes += edit_modes
-            all_motions.append(sample.cpu().numpy())
-            all_motion_vecs.append(sample_vec.cpu().numpy())
+            all_motions.append(sample_np)
+            all_motion_vecs.append(hml_vec)
 
         print(f"created {len(all_motions) * args.batch_size} samples")
-
-        print(f"saving visualizations to [{str(out_path)}]...")
-        skeleton = paramUtil.kit_kinematic_chain if args.dataset == 'kit' else paramUtil.t2m_kinematic_chain
 
         # Recover XYZ *positions* from HumanML3D vector representation
         if model.data_rep == 'hml_vec':
@@ -219,50 +221,59 @@ def main():
             input_motions = input_motions.view(-1, *input_motions.shape[2:]).permute(0, 2, 3, 1).cpu().numpy()
 
         # Visualizations
-        caption = 'Input Motion'
-        length = int(model_kwargs['y']['lengths'].cpu().numpy())
-        motion = input_motions.squeeze().transpose(2, 0, 1)[:length]
-        save_file = f"input_motion_{filename}.mp4"
-        animation_save_path = str(out_path / save_file)
-        rep_files = [animation_save_path]
-        print(f'[({filename}) "{caption}" | -> {save_file}]')
-        plot_3d_motion(animation_save_path, skeleton, motion, title=caption,
-                    dataset=args.dataset, fps=fps, vis_mode='gt')
-        
-        # Save generated motions
-        sample_savedir = npy_dir / filename
-        sample_savedir_pos = sample_savedir / "joint_pos"
-        sample_savedir_vecs = sample_savedir / "joint_vecs"
-        sample_savedir_pos.mkdir(exist_ok=True, parents=True)
-        sample_savedir_vecs.mkdir(exist_ok=True)
+        action_name = Path(filename).name
+        # caption = 'Input Motion'
+        input_motion = input_motions.squeeze().transpose(2, 0, 1)[:length]
+        # save_file = f"input_motion_{action_name}.mp4"
+        # animation_save_path = str(out_path / save_file)
+        # rep_files = [animation_save_path]
+        # print(f'[({action_name}) "{caption}" | -> {save_file}]')
+        # plot_3d_motion(animation_save_path, skeleton, motion, title=caption,
+        #             dataset=args.dataset, fps=fps, vis_mode='gt')
 
+        rep_files = []
+        # save 10% for visualizations
+        save_viz_results = True if random.random() <= 0.0 else False
         for rep_i in range(num_repetitions):
+            motion = all_motions[rep_i]
+            motion_vec = all_motion_vecs[rep_i]
+            
             caption = all_text[rep_i]
             edit_mode = all_edit_modes[rep_i]
             if caption == '':
                 caption = 'Edit [{}] unconditioned'.format(edit_mode)
             else:
                 caption = 'Edit [{}]: {}'.format(edit_mode, caption)
-            motion = all_motions[rep_i].squeeze().transpose(2, 0, 1)[:length]
-            motion_vec = all_motion_vecs[rep_i]
-            save_file = f"sample{filename}_rep{rep_i}.mp4"
-            animation_save_path = str(out_path / save_file)
-            rep_files.append(animation_save_path)
-            print(f'[({filename}) "{caption}" | Rep #{rep_i} | -> {save_file}]')
-            plot_3d_motion(animation_save_path, skeleton, motion, title=caption,
-                        dataset=args.dataset, fps=fps, vis_mode=args.edit_mode)
+        
+            if save_viz_results is True:
+                save_file = f"sample{action_name}_rep{rep_i}.mp4"
+                animation_save_path = str(out_path / save_file)
+                rep_files.append(animation_save_path)
+                print(f'[({action_name}) "{caption}" | Rep #{rep_i} | -> {save_file}]')
+
+                # plot_3d_motion(animation_save_path, skeleton, motion, title=caption,
+                #             dataset=args.dataset, fps=fps, vis_mode=args.edit_mode)
+                plot_3d_motion_pairs(save_path=animation_save_path, 
+                                    joints1=input_motion,
+                                    joints2=motion,
+                                    title=caption, 
+                                    fps=fps)
+            
             # Credit for visualization: https://github.com/EricGuo5513/text-to-motion
 
-            # save each rep
-            np.save(sample_savedir_pos / f"{filename}_{rep_i}.npy", motion)
-            np.save(sample_savedir_vecs / f"{filename}_{rep_i}.npy", motion_vec)
+            # Save generated motions
+            sample_pos_dir = Path(npy_dir_pos / filename)
+            sample_vec_dir = Path(npy_dir_vecs / filename)
+            sample_pos_dir.mkdir(exist_ok=True, parents=True)
+            sample_vec_dir.mkdir(exist_ok=True, parents=True)
+            np.save(sample_pos_dir / f"{action_name}_{rep_i}.npy", motion)
+            np.save(sample_vec_dir / f"{action_name}_{rep_i}.npy", motion_vec)
 
-        all_rep_save_file = out_path / f"{filename}.mp4"
-        ffmpeg_rep_files = [f' -i {f} ' for f in rep_files]
-        hstack_args = f' -filter_complex hstack=inputs={num_repetitions+1}'
-        ffmpeg_rep_cmd = f'ffmpeg -y -loglevel warning ' + ''.join(ffmpeg_rep_files) + f'{hstack_args} {all_rep_save_file}'
-        os.system(ffmpeg_rep_cmd)
-        print(f'[({filename}) "{caption}" | all repetitions | -> {all_rep_save_file}]')
+        if len(rep_files) > 1:
+            all_rep_save_file = out_path / f"{action_name}.mp4"
+            save_vid_list(rep_files, all_rep_save_file)
+            print(f'[({action_name}) "{caption}" | all repetitions | -> {all_rep_save_file}]')
+            [os.remove(p) for p in rep_files]
 
     print(f'[Done] Results are at [{out_path.resolve()}]')
         
