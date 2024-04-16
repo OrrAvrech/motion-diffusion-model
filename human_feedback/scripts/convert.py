@@ -79,9 +79,6 @@ def moyo(
 
         global_orient = compute_canonical_transform(torch.Tensor(moyo_smpl["global_orient"]))
         smpl_params = dict()
-        # smpl_params["global_orient"] = axis_angle_to_matrix(
-        #     torch.Tensor(moyo_smpl["global_orient"])
-        # ).unsqueeze(1)
         smpl_params["global_orient"] = axis_angle_to_matrix(global_orient).unsqueeze(1)
         smpl_params["body_pose"] = axis_angle_to_matrix(
             torch.Tensor(moyo_smpl["body_pose"]).reshape(-1, NUM_JOINTS_SMPL, 3)
@@ -89,20 +86,15 @@ def moyo(
         smpl_params["betas"] = torch.Tensor(moyo_smpl["betas"])[:, :NUM_BETAS]
 
         transl = transform_translation(moyo_smpl["transl"])
-        # smpl_params["transl"] = torch.Tensor(moyo_smpl["transl"])
         smpl_params["transl"] = torch.Tensor(transl)
 
         smpl_model = get_smpl_model(smpl_dir)
         smpl_output = smpl_model(**smpl_params, pose2rot=False)
         positions = smpl_output.joints.detach().cpu().numpy()
         positions = positions[:, :NUM_JOINTS_HUMANML, :]
-
         # from top-view to side-view
         # as in amass_data to pose_data conversion
         # https://github.com/EricGuo5513/HumanML3D/blob/main/raw_pose_processing.ipynb
-        # trans_matrix = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
-        # positions = np.dot(positions, trans_matrix)[:100] #TODO
-        positions = positions[:100]
 
         # save joints (positions)
         if joints_dir is not None:
