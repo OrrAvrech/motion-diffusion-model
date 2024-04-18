@@ -765,8 +765,9 @@ class HumanML3D(data.Dataset):
             self.std_for_eval = np.load(pjoin(opt.meta_dir, f'{opt.dataset_name}_std.npy'))
 
         # TODO
+        self.split_file = split
         # self.split_file = pjoin(opt.data_root, f'{split}.txt')
-        self.split_file = pjoin(opt.data_root, "human_feedback", "split_files", f'{split}.txt')
+        # self.split_file = str(Path(opt.motion_dir).parent /  f"{split}.txt")
         if mode == 'text_only':
             self.t2m_dataset = TextOnlyDataset(self.opt, self.mean, self.std, self.split_file)
         else:
