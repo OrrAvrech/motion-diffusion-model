@@ -25,18 +25,43 @@ from datetime import datetime
 
 
 def in_between_fn(input_motions, model_kwargs, start, end):
-    model_kwargs['y']['inpainting_mask'] = torch.ones_like(input_motions, dtype=torch.bool, device=input_motions.device)  # True means use gt motion
-    model_kwargs['y']['inpainting_mask'][:, :, :,start:end] = False  # do inpainting in those frames
+    model_kwargs['y']['inpainting_mask'] = torch.ones_like(input_motions, dtype=torch.float, device=input_motions.device)  # True means use gt motion
+    model_kwargs['y']['inpainting_mask'][:, :, :,start:end] = 0.0  # do inpainting in those frames
+    length = model_kwargs['y']['lengths'].cpu().numpy()
+
+    mask_slope = (end - start) // 2
+    for f in range(mask_slope):
+        if start-f < 0:
+            continue
+        model_kwargs['y']['inpainting_mask'][..., start-f] = f/mask_slope
+        if end+f >= length:
+            continue
+        model_kwargs['y']['inpainting_mask'][..., end+f] = f/mask_slope
+
     return model_kwargs
 
 
 def body_mask_fn(input_motions, model_kwargs, start, end, mask):
-    model_kwargs['y']['inpainting_mask'] = torch.ones_like(input_motions, dtype=torch.bool, device=input_motions.device)  # True means use gt motion
-    frame_mask = torch.tensor(mask, dtype=torch.bool, device=input_motions.device)
+    # model_kwargs['y']['inpainting_mask'] = torch.ones_like(input_motions, dtype=torch.bool, device=input_motions.device)  # True means use gt motion
+    model_kwargs['y']['inpainting_mask'] = torch.ones_like(input_motions, dtype=torch.float, device=input_motions.device)  # True means use gt motion
+    length = model_kwargs['y']['lengths'].cpu().numpy()
+    # frame_mask = torch.tensor(mask, dtype=torch.bool, device=input_motions.device)
+    frame_mask = torch.tensor(mask, dtype=torch.float, device=input_motions.device)
     num_frames_to_generate = end - start
     assert num_frames_to_generate > 0
-    model_kwargs['y']['inpainting_mask'][..., start:end] = frame_mask.unsqueeze(0).unsqueeze(
+    motion_mask = frame_mask.unsqueeze(0).unsqueeze(
         -1).unsqueeze(-1).repeat(input_motions.shape[0], 1, input_motions.shape[2], num_frames_to_generate)
+    model_kwargs['y']['inpainting_mask'][..., start:end] = motion_mask
+
+    mask_slope = (end - start) // 2
+    for f in range(mask_slope):
+        if start-f < 0:
+            continue
+        model_kwargs['y']['inpainting_mask'][..., start-f] = torch.where(frame_mask.unsqueeze(0).unsqueeze(-1) == 0., f/mask_slope, 1.)
+        if end+f >= length:
+            continue
+        model_kwargs['y']['inpainting_mask'][..., end+f] = torch.where(frame_mask.unsqueeze(0).unsqueeze(-1) == 0., f/mask_slope, 1.)
+
     return model_kwargs
 
 
@@ -68,15 +93,21 @@ def sample_lerp(sample, start_frame, end_frame):
 def main():
     INPAINTING_DICT = {
         "in_between": in_between_fn,
+        "lower_body": in_between_fn,
+        "upper_body": in_between_fn,
+        "lower_back": in_between_fn,
+        "upper_back": in_between_fn,
+        "knees": in_between_fn,
+        "hips": in_between_fn
         # lower_body, upper_body defined the opposite in the original code.
         # keeping this for compatability
-        "lower_body": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BACK_UNMASK),
-        "upper_body": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BACK_UNMASK),
-        # disable lower_body and upper_body at the moment
-        "lower_back": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BACK_UNMASK),
-        "upper_back": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BACK_UNMASK),
-        "knees": partial(body_mask_fn, mask=humanml_utils.HML_KNEE_UNMASK),
-        "hips": partial(body_mask_fn, mask=humanml_utils.HML_HIP_UNMASK),
+        # "lower_body": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
+        # "upper_body": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BODY_UNMASK),
+        # # disable lower_body and upper_body at the moment
+        # "lower_back": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
+        # "upper_back": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BODY_UNMASK),
+        # "knees": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
+        # "hips": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
     }
 
     args = edit_args()
@@ -98,14 +129,14 @@ def main():
     else:
         fps = 20
     dist_util.setup_dist(args.device)
-    run_time = datetime.now().strftime("%Y%m%d_%H%M")
+    run_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    viz_dir = Path(args.output_dir) / "human_feedback" / "viz" / "vecs_12"
+    viz_dir = Path(args.output_dir) / "human_feedback" / "check" / "viz" / f"vecs_12_{run_time}"
     viz_dir.mkdir(exist_ok=True, parents=True)
-    npy_dir = Path(args.output_dir) / "human_feedback" / "vecs_12"
-    npy_dir.mkdir(exist_ok=True, parents=True)
-    npy_dir_pos = npy_dir / "joint_pos"
-    npy_dir_vecs = npy_dir / "hml_vec"
+    # npy_dir = Path(args.output_dir) / "human_feedback" / "check" / "vecs_12"
+    # npy_dir.mkdir(exist_ok=True, parents=True)
+    # npy_dir_pos = npy_dir / "joint_pos"
+    # npy_dir_vecs = npy_dir / "hml_vec"
     out_path = viz_dir
 
     print('Loading dataset...')
@@ -203,7 +234,7 @@ def main():
                 sample = recover_from_ric(sample_vec, n_joints)
                 sample = sample.view(-1, *sample.shape[2:]).permute(0, 2, 3, 1)
 
-                sample = sample_lerp(sample, start, end) # joint positions
+                # sample = sample_lerp(sample, start, end) # joint positions # TODO: check if necessary after mask-slope interp
                 sample_np = sample.cpu().numpy().squeeze().transpose(2, 0, 1)[:length]
                 hml_vec = extract_features(positions=sample_np) # hml vec
 
@@ -233,7 +264,7 @@ def main():
 
         rep_files = []
         # save 10% for visualizations
-        save_viz_results = True if random.random() <= 0.0 else False
+        save_viz_results = True if random.random() <= 1.0 else False
         for rep_i in range(num_repetitions):
             motion = all_motions[rep_i]
             motion_vec = all_motion_vecs[rep_i]
@@ -262,12 +293,12 @@ def main():
             # Credit for visualization: https://github.com/EricGuo5513/text-to-motion
 
             # Save generated motions
-            sample_pos_dir = Path(npy_dir_pos / filename)
-            sample_vec_dir = Path(npy_dir_vecs / filename)
-            sample_pos_dir.mkdir(exist_ok=True, parents=True)
-            sample_vec_dir.mkdir(exist_ok=True, parents=True)
-            np.save(sample_pos_dir / f"{action_name}_{rep_i}.npy", motion)
-            np.save(sample_vec_dir / f"{action_name}_{rep_i}.npy", motion_vec)
+            # sample_pos_dir = Path(npy_dir_pos / filename)
+            # sample_vec_dir = Path(npy_dir_vecs / filename)
+            # sample_pos_dir.mkdir(exist_ok=True, parents=True)
+            # sample_vec_dir.mkdir(exist_ok=True, parents=True)
+            # np.save(sample_pos_dir / f"{action_name}_{rep_i}.npy", motion)
+            # np.save(sample_vec_dir / f"{action_name}_{rep_i}.npy", motion_vec)
 
         if len(rep_files) > 1:
             all_rep_save_file = out_path / f"{action_name}.mp4"
