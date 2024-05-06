@@ -69,16 +69,21 @@ def get_opt(opt_path, device):
         opt.dim_pose = 251
         opt.max_motion_length = 196
     elif opt.dataset_name == "humanfeedback":
-        # opt.data_root = './dataset/MOYO' # MOYO
         opt.data_root = './dataset/MotionX' # MotionX
-        opt.motion_dir = pjoin(opt.data_root, 'human_feedback', 'new_joint_vecs_split') # Both
-        # opt.text_dir = pjoin(opt.data_root, 'texts_split') # MOYO
+        opt.motion_dir = pjoin(opt.data_root, 'human_feedback', 'new_joint_vecs_split') # MotionX
         opt.text_dir = pjoin(opt.data_root, 'human_feedback', 'seq_texts_split') # MotionX
         opt.joints_num = 22
         opt.dim_pose = 263
         opt.max_motion_length = 196
     elif opt.dataset_name == "moyo":
-        opt.data_root = './dataset/MOYO'
+        opt.data_root = './dataset/MOYO' # MOYO
+        opt.motion_dir = pjoin(opt.data_root, 'human_feedback', 'fixed_conversion', 'new_joint_vecs_split') # MOYO
+        opt.text_dir = pjoin(opt.data_root, 'human_feedback', 'fixed_conversion', 'texts_split') # MOYO
+        opt.joints_num = 22
+        opt.dim_pose = 263
+        opt.max_motion_length = 196
+    elif opt.dataset_name == "t2m_humanfeedback":
+        opt.data_root = './dataset/T2MHumanFeedback'
         opt.motion_dir = pjoin(opt.data_root, 'new_joint_vecs')
         opt.text_dir = pjoin(opt.data_root, 'texts')
         opt.joints_num = 22

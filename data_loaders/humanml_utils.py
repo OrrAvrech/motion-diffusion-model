@@ -69,11 +69,11 @@ HML_HIP_JOINTS_BINARY = np.array([i in HML_HIP_JOINTS for i in range(NUM_HML_JOI
 HML_FEET_JOINTS_BINARY = np.array([i in HML_FEET_JOINTS for i in range(NUM_HML_JOINTS)])
 
 
-HML_LOWER_BODY_UNMASK = ~np.concatenate(([False]*(1+2+1),
+HML_LOWER_BODY_UNMASK = ~np.concatenate(([True]*(1+2+1),
                                      HML_LOWER_BACK_JOINTS_BINARY[1:].repeat(3),
                                      HML_LOWER_BACK_JOINTS_BINARY[1:].repeat(6),
                                      HML_LOWER_BACK_JOINTS_BINARY.repeat(3),
-                                     [False]*4))
+                                     [True]*4))
 
 HML_UPPER_BODY_UNMASK = ~np.concatenate(([False]*(1+2+1),
                                      HML_UPPER_BODY_JOINTS_BINARY[1:].repeat(3),

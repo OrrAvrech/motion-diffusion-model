@@ -9,7 +9,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import mpl_toolkits.mplot3d.axes3d as p3
 from textwrap import wrap
 from data_loaders.humanml.utils.paramUtil import t2m_kinematic_chain
-from human_feedback.metrics import align_by_root
+from human_feedback.motion_utils import align_by_root
 
 
 def save_vid_list(saved_files: List[Path], save_path: Path):
@@ -153,7 +153,7 @@ def plot_3d_motion_pairs(save_path,
                          kinematic_tree=t2m_kinematic_chain,
                          figsize=(5, 5),
                          fps=120,
-                         scale=1.3,
+                         scale=1.0,
                          radius=3):
     title = "\n".join(wrap(title, 20))
 
@@ -268,16 +268,16 @@ def save_overlays_viz(gt: torch.Tensor, perturbed: torch.Tensor, pred: torch.Ten
     pred_np = pred.detach().cpu().numpy()
 
     gt_pert_save_path = save_dir / f"gt_pert_{idx}.mp4"
-    pert_pred_save_path = save_dir / f"pert_pred_{idx}.mp4"
+    # pert_pred_save_path = save_dir / f"pert_pred_{idx}.mp4"
     gt_pred_save_path = save_dir / f"gt_pred_{idx}.mp4"
 
     plot_3d_motion_pairs(gt_pert_save_path, gt_np, pert_np, title="GT vs. Perturbed", fps=fps)
-    plot_3d_motion_pairs(pert_pred_save_path, pert_np, pred_np, title="Perturbed vs. Pred", fps=fps,
-                         color1="red", color2="green")
+    # plot_3d_motion_pairs(pert_pred_save_path, pert_np, pred_np, title="Perturbed vs. Pred", fps=fps,
+    #                      color1="red", color2="green")
     plot_3d_motion_pairs(gt_pred_save_path, gt_np, pred_np, title="GT vs. Pred", fps=fps,
                          color2="green")
 
-    saved_files = [gt_pert_save_path, pert_pred_save_path, gt_pred_save_path]
+    saved_files = [gt_pert_save_path, gt_pred_save_path]
     save_path = save_dir / f"{idx}.mp4"
     save_vid_list(saved_files=saved_files, save_path=save_path)
     [os.remove(filepath) for filepath in saved_files]

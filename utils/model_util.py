@@ -32,7 +32,7 @@ def get_model_args(args, data):
     njoints = 25
     nfeats = 6
 
-    if args.dataset in ['humanml', "humanfeedback", "moyo"]:
+    if args.dataset in ['humanml', "humanfeedback", "moyo", "t2m_humanfeedback"]:
         data_rep = 'hml_vec'
         njoints = 263
         nfeats = 1

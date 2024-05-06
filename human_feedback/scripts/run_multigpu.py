@@ -11,12 +11,14 @@ app = typer.Typer()
 def run_instance(timeline_path: Path, 
                  output_dir: Path, 
                  num_samples: int,
+                 guidance_param: float,
                  program_py: str, 
                  model_path: Path,  
                  dataset: str,
                  split_file: str,
                  device: int):
-    command = f"python {program_py} --model_path {model_path} --timeline_path {timeline_path} --num_samples {num_samples} --device {device} --output_dir {output_dir} --dataset {dataset} --split_file {split_file}"
+    command = f"python {program_py} --model_path {model_path} --timeline_path {timeline_path} --num_samples {num_samples} --device {device} --output_dir {output_dir} --dataset {dataset} --split_file {split_file} --guidance_param {guidance_param}"
+    print(command)
     process = subprocess.Popen(command, shell=True)
 
 
@@ -26,10 +28,12 @@ def edit_long(timeline_path: Path,
               split_files_dir: Path,
               device: Optional[int] = None, 
               num_samples: Optional[int] = 1000,
+              guidance_param: Optional[float] = 0.0,
               program_py: Optional[str] = "/proj/vondrick2/orr/motion-diffusion-model/sample/edit_long.py", 
               model_path: Optional[Path] = Path("./save/humanml_trans_enc_512/model000200000.pt"),  
               dataset: Optional[str] = "humanfeedback",
-              num_gpus: Optional[int] = 8):
+              num_gpus: Optional[int] = 8,
+              gpu_id_offset: Optional[int] = 0):
     '''
     "--model_path",
     "./save/humanml_trans_enc_512/model000200000.pt",
@@ -50,14 +54,15 @@ def edit_long(timeline_path: Path,
                            timeline_path, 
                            output_dir,
                            num_samples,
+                           guidance_param,
                            program_py,
                            model_path,
                            dataset)
 
     for i, split_file in enumerate(split_files_dir.glob("*.txt")):
-        device = int(i % num_gpus)
+        device = int(i % num_gpus) + gpu_id_offset
         print(f"process {i}: run {split_file.name} on device {device}")
-        func_to_pool(split_file.stem, device)
+        func_to_pool(split_file, device)
 
 
 if __name__ == "__main__":

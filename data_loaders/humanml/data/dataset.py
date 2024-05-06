@@ -792,16 +792,17 @@ class KIT(HumanML3D):
         super(KIT, self).__init__(mode, datapath, split, **kwargs)
 
 
-# class HumanFeedback(HumanML3D):
-#     def __init__(self, mode, datapath='./dataset/humanfeedback_opt.txt', split="all", **kwargs):
-#         super().__init__(mode, datapath, split, **kwargs)
+class T2MHumanFeedback(HumanML3D):
+    def __init__(self, mode, datapath='./dataset/t2m_humanfeedback_opt.txt', split="all", **kwargs):
+        super().__init__(mode, datapath, split, **kwargs)
+
 
 class HumanML3DFname(HumanML3D):
     def __getitem__(self, item):
         return (*super().__getitem__(item), self.t2m_dataset.name_list[item])
 
 
-class MOYO(HumanML3D):
+class MOYO(HumanML3DFname):
     def __init__(self, mode, datapath='./dataset/moyo_opt.txt', split="all", **kwargs):
         super().__init__(mode, datapath, split, **kwargs)
 

@@ -40,12 +40,12 @@ class MotionPairs(data.Dataset):
         if seq_len < self.max_frames:
             # zero padding
             zeros = torch.zeros((self.max_frames, *motion.shape[1:]))
-            zeros[:seq_len, ...] = motion
+            zeros[:seq_len, ...] = motion[:seq_len, ...]
             motion_proc = zeros
         else:
             if self.sample_window is True:
                 # randomly sample a window of max-frames size
-                start_idx = start_idx if start_idx is not None else random.randint(0, seq_len - self.max_frames - 10)
+                start_idx = start_idx if start_idx is not None else random.randint(0, seq_len - self.max_frames)
                 motion_proc = motion[start_idx:start_idx + self.max_frames, ...]
             else:
                 motion_proc = motion[:self.max_frames, ...]
@@ -63,7 +63,7 @@ class MotionPairs(data.Dataset):
     def __getitem__(self, idx) -> Tuple[torch.Tensor]:
         gt_filepath = self.motion_files[idx]
         gt_motion = torch.Tensor(np.load(gt_filepath))
-        pert_motion_dir = self.pert_dir / gt_filepath.stem
+        pert_motion_dir = self.pert_dir / gt_filepath.relative_to(self.input_dir).parent / gt_filepath.stem
         pert_motions_files = list(pert_motion_dir.rglob("*.npy"))
         if self.random_choice is True:
             # randomly choose an element if more than one perturbations exist
@@ -102,7 +102,7 @@ class MotionPairsSplit(MotionPairs):
         with open(self.split_file, 'r') as f:
             for line in f.readlines():
                 id_list.append(line.strip())
-        self.motion_files = [p for p in self.motion_files if p.stem in id_list]
+        self.motion_files = [p for p in self.motion_files if str(p.relative_to(input_dir).parent / p.stem) in id_list]
 
 
 class IdentityPairsSplit(MotionPairsSplit):

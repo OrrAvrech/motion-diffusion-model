@@ -93,21 +93,21 @@ def sample_lerp(sample, start_frame, end_frame):
 def main():
     INPAINTING_DICT = {
         "in_between": in_between_fn,
-        "lower_body": in_between_fn,
-        "upper_body": in_between_fn,
-        "lower_back": in_between_fn,
-        "upper_back": in_between_fn,
-        "knees": in_between_fn,
-        "hips": in_between_fn
+        # "lower_body": in_between_fn,
+        # "upper_body": in_between_fn,
+        # "lower_back": in_between_fn,
+        # "upper_back": in_between_fn,
+        # "knees": in_between_fn,
+        # "hips": in_between_fn
         # lower_body, upper_body defined the opposite in the original code.
         # keeping this for compatability
-        # "lower_body": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
-        # "upper_body": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BODY_UNMASK),
-        # # disable lower_body and upper_body at the moment
-        # "lower_back": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
-        # "upper_back": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BODY_UNMASK),
-        # "knees": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
-        # "hips": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
+        "lower_body": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
+        "upper_body": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BODY_UNMASK),
+        # disable lower_body and upper_body at the moment
+        "lower_back": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
+        "upper_back": partial(body_mask_fn, mask=humanml_utils.HML_UPPER_BODY_UNMASK),
+        "knees": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
+        "hips": partial(body_mask_fn, mask=humanml_utils.HML_LOWER_BODY_UNMASK),
     }
 
     args = edit_args()
@@ -115,28 +115,24 @@ def main():
     out_path = args.output_dir
     name = os.path.basename(os.path.dirname(args.model_path))
     niter = os.path.basename(args.model_path).replace('model', '').replace('.pt', '')
-    if args.dataset in ['kit', 'humanml', "humanfeedback"]:
-        max_frames = 196
-    elif args.dataset == "moyo":
+    if args.dataset in ['kit', 'humanml', "humanfeedback", "moyo"]:
         max_frames = 196
     else:
         max_frames = 60
 
     if args.dataset == "kit":
         fps = 12.5
-    elif args.dataset == "moyo":
-        fps = 20
     else:
         fps = 20
     dist_util.setup_dist(args.device)
     run_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    viz_dir = Path(args.output_dir) / "human_feedback" / "check" / "viz" / f"vecs_12_{run_time}"
+    viz_dir = Path(args.output_dir) / "viz" / f"vecs_12_enc50_ft"
     viz_dir.mkdir(exist_ok=True, parents=True)
-    # npy_dir = Path(args.output_dir) / "human_feedback" / "check" / "vecs_12"
-    # npy_dir.mkdir(exist_ok=True, parents=True)
-    # npy_dir_pos = npy_dir / "joint_pos"
-    # npy_dir_vecs = npy_dir / "hml_vec"
+    npy_dir = Path(args.output_dir) / f"vecs_12_enc50_ft"
+    npy_dir.mkdir(exist_ok=True, parents=True)
+    npy_dir_pos = npy_dir / "joint_pos"
+    npy_dir_vecs = npy_dir / "hml_vec"
     out_path = viz_dir
 
     print('Loading dataset...')
@@ -293,12 +289,12 @@ def main():
             # Credit for visualization: https://github.com/EricGuo5513/text-to-motion
 
             # Save generated motions
-            # sample_pos_dir = Path(npy_dir_pos / filename)
-            # sample_vec_dir = Path(npy_dir_vecs / filename)
-            # sample_pos_dir.mkdir(exist_ok=True, parents=True)
-            # sample_vec_dir.mkdir(exist_ok=True, parents=True)
-            # np.save(sample_pos_dir / f"{action_name}_{rep_i}.npy", motion)
-            # np.save(sample_vec_dir / f"{action_name}_{rep_i}.npy", motion_vec)
+            sample_pos_dir = Path(npy_dir_pos / filename)
+            sample_vec_dir = Path(npy_dir_vecs / filename)
+            sample_pos_dir.mkdir(exist_ok=True, parents=True)
+            sample_vec_dir.mkdir(exist_ok=True, parents=True)
+            np.save(sample_pos_dir / f"{action_name}_{rep_i}.npy", motion)
+            np.save(sample_vec_dir / f"{action_name}_{rep_i}.npy", motion_vec)
 
         if len(rep_files) > 1:
             all_rep_save_file = out_path / f"{action_name}.mp4"
