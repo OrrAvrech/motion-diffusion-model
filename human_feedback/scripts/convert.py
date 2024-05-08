@@ -5,7 +5,7 @@ import pickle
 from tqdm import tqdm
 from pathlib import Path
 from typing import Optional, Tuple
-from utils.rotation_conversions import axis_angle_to_matrix, matrix_to_axis_angle
+from utils.rotation_conversions import axis_angle_to_matrix, matrix_to_axis_angle, matrix_to_euler_angles, euler_angles_to_matrix
 from human_feedback.smpl import get_smpl_model, get_smpl_output
 from human_feedback.motion_process import process_file, recover_from_ric
 import numpy as np
@@ -22,8 +22,7 @@ def load_4d_humans(
     smpl_dir: Path,
     num_joints: int,
     max_frames: int,
-    transform: bool = False,
-):
+    transform: bool = False):
     data4d = joblib.load(pkl_path)
     predictions = list(data4d.values())
 
@@ -75,7 +74,6 @@ def moyo(
             print(f"Error loading {pkl_path}, skipping...")
             continue
         filename_npy = f"{pkl_path.stem}.npy"
-
 
         global_orient = compute_canonical_transform(torch.Tensor(moyo_smpl["global_orient"]))
         smpl_params = dict()
@@ -154,11 +152,11 @@ def humans4d(
     humanml_dir: Optional[Path] = None,
     smpl_dir: Optional[Path] = None,
     max_frames: Optional[int] = 196,
-) -> Tuple[list, list, list]:
+    transform: Optional[bool] = False):
     positions_list, data_list, rec_ric_data_list = [], [], []
     for pkl_path in tqdm(dataset_dir.rglob("*.pkl")):
         positions, _, _, _ = load_4d_humans(
-            pkl_path, smpl_dir, NUM_JOINTS_HUMANML, max_frames, transform=None
+            pkl_path, smpl_dir, NUM_JOINTS_HUMANML, max_frames, transform=transform
         )
         filename_npy = f"{pkl_path.stem}.npy"
 
@@ -175,8 +173,8 @@ def humans4d(
         )
 
         if humanml_dir is not None:
-            new_joints_dir = humanml_dir / "new_joints"
-            new_joint_vec_dir = humanml_dir / "new_joints_vec"
+            new_joints_dir = humanml_dir / "new_joints_camera_bbox"
+            new_joint_vec_dir = humanml_dir / "new_joints_vec_camera_bbox"
             new_joints_dir.mkdir(exist_ok=True, parents=True)
             new_joint_vec_dir.mkdir(exist_ok=True)
             np.save(new_joints_dir / filename_npy, rec_ric_data.squeeze().numpy())
@@ -187,7 +185,7 @@ def humans4d(
         rec_ric_data_list.append(rec_ric_data)
 
     return positions_list, data_list, rec_ric_data_list
-
+    
 
 @app.command()
 def motionx(dataset_dir: Path,
@@ -264,6 +262,74 @@ def motionx(dataset_dir: Path,
         rec_ric_data_list.append(rec_ric_data)
 
     return positions_list, data_list, rec_ric_data_list
+
+
+@app.command()
+def wham(dataset_dir: Path,
+         joints_dir: Optional[Path] = None,
+         humanml_dir: Optional[Path] = None,
+         smpl_dir: Optional[Path] = None):
+    
+    positions_list, data_list, rec_ric_data_list = [], [], []
+    for pkl_path in tqdm(dataset_dir.rglob("*.pkl")):
+        try:
+            with open(pkl_path, "rb") as fp:
+                smpl_params = joblib.load(fp)
+        except pickle.UnpicklingError:
+            print(f"Error loading {pkl_path}, skipping...")
+            continue
+        filename_npy = f"{pkl_path.stem}.npy"
+
+        pose = smpl_params[0]["pose_world"]
+        global_orient = torch.Tensor(pose[..., :3])
+        global_orient = axis_angle_to_matrix(global_orient).unsqueeze(1)
+
+        body_pose = torch.Tensor(pose[..., 3:])
+        body_pose = axis_angle_to_matrix(body_pose.reshape(-1, NUM_JOINTS_SMPL, 3))
+
+        betas = torch.Tensor(smpl_params[0]["betas"])
+        transl = torch.Tensor(smpl_params[0]["trans_world"])
+
+        smpl_params = dict()
+        smpl_params["global_orient"] = global_orient
+        smpl_params["body_pose"] = body_pose
+        smpl_params["betas"] = betas
+        smpl_params["transl"] = transl
+
+        smpl_model = get_smpl_model(smpl_dir)
+        smpl_output = smpl_model(**smpl_params, pose2rot=False)
+        positions = smpl_output.joints.detach().cpu().numpy()
+        positions = positions[:, :NUM_JOINTS_HUMANML, :]
+        # from top-view to side-view
+        # as in amass_data to pose_data conversion
+        # https://github.com/EricGuo5513/HumanML3D/blob/main/raw_pose_processing.ipynb
+
+        # save joints (positions)
+        if joints_dir is not None:
+            joints_dir.mkdir(exist_ok=True, parents=True)
+            np.save(joints_dir / filename_npy, positions)
+
+        # save new_joint_vec (HumanML full rep.)
+        data, _, _, _ = process_file(positions, feet_thre=0.002)
+        # save new_joints (HumanML rep. joint positions only)
+        rec_ric_data = recover_from_ric(
+            torch.from_numpy(data).unsqueeze(0).float(), NUM_JOINTS_HUMANML
+        )
+
+        if humanml_dir is not None:
+            new_joints_dir = humanml_dir / "new_joints"
+            new_joint_vec_dir = humanml_dir / "new_joints_vec"
+            new_joints_dir.mkdir(exist_ok=True, parents=True)
+            new_joint_vec_dir.mkdir(exist_ok=True)
+            np.save(new_joints_dir / filename_npy, rec_ric_data.squeeze().numpy())
+            np.save(new_joint_vec_dir / filename_npy, data)
+
+        positions_list.append(positions)
+        data_list.append(data)
+        rec_ric_data_list.append(rec_ric_data)
+
+    return positions_list, data_list, rec_ric_data_list
+
 
 
 if __name__ == "__main__":

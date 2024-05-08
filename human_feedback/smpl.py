@@ -122,9 +122,6 @@ def get_smpl_output(smpl_dir: Path, predictions: List[dict], transform: bool = F
     global_orient = torch.Tensor(
         np.array(list(map(lambda x: x["global_orient"], pred_smpl_params)))
     )
-    global_orient = torch.Tensor(
-        np.array(list(map(lambda x: x["global_orient"], pred_smpl_params)))
-    )
 
     if transform:
         global_orient_euler = matrix_to_euler_angles(
