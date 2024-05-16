@@ -133,4 +133,33 @@ class IdentityPairsSplit(MotionPairsSplit):
         return gt_motion, pert_motion, seq_len
         
 
+class GoldenPairs(MotionPairs):
+    def __init__(self, input_dir: Path, pert_dir: str, max_frames: Optional[int] = None,
+                 random_choice: bool = False, sample_window: bool = False, transform = None) -> None:
+        # notice that the input dir is not the folder of "wrong" motion
+        # since we can have more than one "wrong" motion per "correct" one, so it sets the dataset len
+        # see config file for directory paths
+        super().__init__(input_dir=input_dir, pert_dir=pert_dir, random_choice=random_choice,
+                         max_frames=max_frames, sample_window=sample_window, transform=transform)
+        
+    def __getitem__(self, idx) -> Tuple[torch.Tensor]:
+        wrong_filepath = self.motion_files[idx]
+        wrong_motion = torch.Tensor(np.load(wrong_filepath))
+        correct_filepath = self.pert_dir / f"{wrong_filepath.stem.rsplit('_', 1)[0]}.npy"
+        correct_motion = torch.Tensor(np.load(correct_filepath))
+        min_seq_len = min(correct_motion.shape[0], wrong_motion.shape[0])
 
+        correct_motion, seq_len, _ = self.process_motion(correct_motion,
+                                                            min_seq_len, 
+                                                            mean=self.mean, 
+                                                            std=self.std)
+        wrong_motion, _, _ = self.process_motion(wrong_motion, 
+                                                    min_seq_len, 
+                                                    mean=self.pert_mean,
+                                                    std=self.pert_std)
+
+        if self.transform is not None:
+            correct_motion = self.transform(correct_motion)
+            wrong_motion = self.transform(wrong_motion)
+            
+        return correct_motion, wrong_motion, seq_len

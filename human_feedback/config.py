@@ -90,9 +90,8 @@ class TrainDiffusionConfig:
 class EvalConfig:
     dataset: MotionDatasetConfig
     model: TransformerConfig
+    diffusion: DiffusionConfig
     model_path: Path
     batch_size: int
     viz_samples_per_batch: Optional[int] = 0
     device: Optional[Union[List[int], int]] = 0
-    train_split_file: Optional[str] = "train"
-    val_split_file: Optional[str] = "val"
